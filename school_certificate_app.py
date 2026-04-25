@@ -1,776 +1,518 @@
+# ============================================================
+# SCHOOL CERTIFICATE GENERATOR — Single File Streamlit App
+# ============================================================
+
+import streamlit as st
 import sqlite3
 import os
-import bcrypt
-from datetime import datetime
-
-DB_PATH = "certificate_system.db"
-
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_connection()
-    c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            full_name TEXT,
-            email TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            background_path TEXT,
-            logo_path TEXT,
-            signature_principal_path TEXT,
-            signature_coordinator_path TEXT,
-            school_name TEXT,
-            school_name_x REAL DEFAULT 0.5,
-            school_name_y REAL DEFAULT 0.1,
-            school_name_font TEXT DEFAULT 'Helvetica-Bold',
-            school_name_size INTEGER DEFAULT 36,
-            school_name_color TEXT DEFAULT '#000000',
-            school_name_bold INTEGER DEFAULT 1,
-            school_name_italic INTEGER DEFAULT 0,
-            school_name_align TEXT DEFAULT 'center',
-            logo_x REAL DEFAULT 0.5,
-            logo_y REAL DEFAULT 0.15,
-            logo_width INTEGER DEFAULT 100,
-            logo_height INTEGER DEFAULT 100,
-            logo_transparency REAL DEFAULT 1.0,
-            watermark_text TEXT DEFAULT '',
-            watermark_transparency REAL DEFAULT 0.1,
-            name_x REAL DEFAULT 0.5,
-            name_y REAL DEFAULT 0.42,
-            name_font TEXT DEFAULT 'Helvetica-Bold',
-            name_size INTEGER DEFAULT 48,
-            name_color TEXT DEFAULT '#1a1a2e',
-            course_x REAL DEFAULT 0.5,
-            course_y REAL DEFAULT 0.55,
-            course_font TEXT DEFAULT 'Helvetica',
-            course_size INTEGER DEFAULT 24,
-            course_color TEXT DEFAULT '#333333',
-            date_x REAL DEFAULT 0.25,
-            date_y REAL DEFAULT 0.75,
-            grade_x REAL DEFAULT 0.5,
-            grade_y REAL DEFAULT 0.62,
-            rank_x REAL DEFAULT 0.75,
-            rank_y REAL DEFAULT 0.75,
-            sig_principal_x REAL DEFAULT 0.2,
-            sig_principal_y REAL DEFAULT 0.82,
-            sig_coordinator_x REAL DEFAULT 0.8,
-            sig_coordinator_y REAL DEFAULT 0.82,
-            sig_width INTEGER DEFAULT 120,
-            sig_height INTEGER DEFAULT 60,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS certificates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            certificate_id TEXT UNIQUE NOT NULL,
-            student_name TEXT NOT NULL,
-            course TEXT,
-            event TEXT,
-            issue_date TEXT,
-            grade TEXT,
-            rank TEXT,
-            template_id INTEGER,
-            template_name TEXT,
-            pdf_path TEXT,
-            png_path TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (template_id) REFERENCES templates(id)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            key TEXT UNIQUE NOT NULL,
-            value TEXT
-        )
-    """)
-
-    conn.commit()
-
-    # Seed default admin
-    c.execute("SELECT COUNT(*) FROM admins")
-    if c.fetchone()[0] == 0:
-        pw = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
-        c.execute("INSERT INTO admins (username, password_hash, full_name, email) VALUES (?,?,?,?)",
-                  ("admin", pw, "System Administrator", "admin@school.edu"))
-        conn.commit()
-
-    # Seed default settings
-    defaults = {
-        "school_name": "Excellence Academy",
-        "school_address": "123 Education Street, Knowledge City",
-        "contact_info": "info@school.edu | +1-234-567-8900",
-        "logo_path": "",
-        "sig_principal_path": "",
-        "sig_coordinator_path": "",
-    }
-    for k, v in defaults.items():
-        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
-    conn.commit()
-    conn.close()
-
-
-def get_setting(key):
-    conn = get_connection()
-    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    conn.close()
-    return row["value"] if row else ""
-
-def set_setting(key, value):
-    conn = get_connection()
-    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, value))
-    conn.commit()
-    conn.close()
-
-def get_all_settings():
-    conn = get_connection()
-    rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    conn.close()
-    return {r["key"]: r["value"] for r in rows}
-
-def save_template(data: dict):
-    conn = get_connection()
-    cols = ", ".join(data.keys())
-    placeholders = ", ".join(["?" for _ in data])
-    conn.execute(f"INSERT INTO templates ({cols}) VALUES ({placeholders})", list(data.values()))
-    conn.commit()
-    conn.close()
-
-def update_template(template_id, data: dict):
-    data["updated_at"] = datetime.now().isoformat()
-    sets = ", ".join([f"{k}=?" for k in data])
-    conn = get_connection()
-    conn.execute(f"UPDATE templates SET {sets} WHERE id=?", list(data.values()) + [template_id])
-    conn.commit()
-    conn.close()
-
-def get_templates():
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM templates ORDER BY created_at DESC").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-def get_template(template_id):
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM templates WHERE id=?", (template_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-def delete_template(template_id):
-    conn = get_connection()
-    conn.execute("DELETE FROM templates WHERE id=?", (template_id,))
-    conn.commit()
-    conn.close()
-
-def save_certificate(data: dict):
-    conn = get_connection()
-    cols = ", ".join(data.keys())
-    placeholders = ", ".join(["?" for _ in data])
-    conn.execute(f"INSERT INTO certificates ({cols}) VALUES ({placeholders})", list(data.values()))
-    conn.commit()
-    conn.close()
-
-def get_certificates(search_name=None, search_id=None, search_date=None):
-    conn = get_connection()
-    query = "SELECT * FROM certificates WHERE 1=1"
-    params = []
-    if search_name:
-        query += " AND student_name LIKE ?"
-        params.append(f"%{search_name}%")
-    if search_id:
-        query += " AND certificate_id LIKE ?"
-        params.append(f"%{search_id}%")
-    if search_date:
-        query += " AND issue_date = ?"
-        params.append(search_date)
-    query += " ORDER BY created_at DESC"
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-def get_certificate_by_id(cert_id):
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM certificates WHERE certificate_id=?", (cert_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-def check_duplicate(student_name, event):
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT id FROM certificates WHERE student_name=? AND event=?",
-        (student_name, event)
-    ).fetchone()
-    conn.close()
-    return row is not None
-
-def get_admin(username):
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-def update_admin(username, data: dict):
-    sets = ", ".join([f"{k}=?" for k in data])
-    conn = get_connection()
-    conn.execute(f"UPDATE admins SET {sets} WHERE username=?", list(data.values()) + [username])
-    conn.commit()
-    conn.close()
-
-def get_stats():
-    conn = get_connection()
-    total_certs = conn.execute("SELECT COUNT(*) FROM certificates").fetchone()[0]
-    total_templates = conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0]
-    recent = conn.execute(
-        "SELECT * FROM certificates ORDER BY created_at DESC LIMIT 5"
-    ).fetchall()
-    conn.close()
-    return {
-        "total_certificates": total_certs,
-        "total_templates": total_templates,
-        "recent_certificates": [dict(r) for r in recent],
-    }
-import bcrypt
-import streamlit as st
-from database import get_admin, update_admin
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
-
-def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
-
-def login(username: str, password: str) -> bool:
-    admin = get_admin(username)
-    if admin and verify_password(password, admin["password_hash"]):
-        st.session_state["authenticated"] = True
-        st.session_state["admin_username"] = username
-        st.session_state["admin_name"] = admin.get("full_name", username)
-        return True
-    return False
-
-def logout():
-    for key in ["authenticated", "admin_username", "admin_name"]:
-        st.session_state.pop(key, None)
-
-def is_authenticated() -> bool:
-    return st.session_state.get("authenticated", False)
-
-def change_password(username: str, old_pw: str, new_pw: str) -> tuple[bool, str]:
-    admin = get_admin(username)
-    if not admin:
-        return False, "Admin not found."
-    if not verify_password(old_pw, admin["password_hash"]):
-        return False, "Current password is incorrect."
-    if len(new_pw) < 6:
-        return False, "New password must be at least 6 characters."
-    update_admin(username, {"password_hash": hash_password(new_pw)})
-    return True, "Password changed successfully."
-
-def update_profile(username: str, full_name: str, email: str) -> tuple[bool, str]:
-    update_admin(username, {"full_name": full_name, "email": email})
-    st.session_state["admin_name"] = full_name
-    return True, "Profile updated successfully."
-
-def render_login_page():
-    st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@300;400;700&display=swap');
-
-    .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); }
-
-    .login-container {
-        max-width: 420px;
-        margin: 60px auto;
-        background: rgba(255,255,255,0.05);
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(255,255,255,0.15);
-        border-radius: 20px;
-        padding: 48px 40px;
-        box-shadow: 0 25px 80px rgba(0,0,0,0.4);
-    }
-    .login-title {
-        font-family: 'Playfair Display', serif;
-        font-size: 2rem;
-        color: #f0c060;
-        text-align: center;
-        margin-bottom: 4px;
-        letter-spacing: 1px;
-    }
-    .login-subtitle {
-        font-family: 'Lato', sans-serif;
-        font-size: 0.85rem;
-        color: rgba(255,255,255,0.5);
-        text-align: center;
-        margin-bottom: 32px;
-        letter-spacing: 3px;
-        text-transform: uppercase;
-    }
-    .stTextInput > div > div > input {
-        background: rgba(255,255,255,0.08) !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        border-radius: 10px !important;
-        color: white !important;
-        padding: 12px 16px !important;
-        font-family: 'Lato', sans-serif !important;
-    }
-    .stTextInput label { color: rgba(255,255,255,0.7) !important; font-family: 'Lato', sans-serif !important; }
-    .stButton > button {
-        background: linear-gradient(135deg, #f0c060, #e09030) !important;
-        color: #1a1a2e !important;
-        font-family: 'Lato', sans-serif !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 12px !important;
-        width: 100% !important;
-        font-size: 1rem !important;
-        letter-spacing: 2px !important;
-        text-transform: uppercase !important;
-        cursor: pointer !important;
-        transition: all 0.3s ease !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="login-title">🎓 CertifyPro</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-subtitle">Certificate Management System</div>', unsafe_allow_html=True)
-
-    with st.form("login_form"):
-        username = st.text_input("Username", placeholder="Enter username")
-        password = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("SIGN IN")
-        if submitted:
-            if login(username, password):
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("❌ Invalid credentials. Please try again.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center;color:rgba(255,255,255,0.3);font-size:0.75rem;margin-top:24px;font-family:Lato,sans-serif;">Default: admin / admin123</p>', unsafe_allow_html=True)
-  import os
-import uuid
-import qrcode
 import io
-from datetime import datetime
+import uuid
+import zipfile
+import hashlib
+import base64
+from datetime import datetime, date
+
+import pandas as pd
+import qrcode
 from PIL import Image, ImageDraw, ImageFont
+
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from reportlab.lib.colors import HexColor, Color
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import tempfile
+from reportlab.lib.colors import HexColor
 
-GENERATED_DIR = "generated"
-os.makedirs(GENERATED_DIR, exist_ok=True)
-os.makedirs(os.path.join(GENERATED_DIR, "pdf"), exist_ok=True)
-os.makedirs(os.path.join(GENERATED_DIR, "png"), exist_ok=True)
-os.makedirs(os.path.join(GENERATED_DIR, "qr"), exist_ok=True)
+# ─────────────────────────────────────────────
+# 1. CONSTANTS & DIRECTORIES
+# ─────────────────────────────────────────────
 
-PAGE_W, PAGE_H = landscape(A4)  # 841.89 x 595.28 pts
+DB_PATH = "certificates.db"
+ASSETS_DIR = "cert_assets"
+GEN_DIR = "cert_generated"
+
+for _d in [ASSETS_DIR, GEN_DIR,
+           os.path.join(ASSETS_DIR, "logos"),
+           os.path.join(ASSETS_DIR, "signatures"),
+           os.path.join(ASSETS_DIR, "backgrounds"),
+           os.path.join(GEN_DIR, "pdf"),
+           os.path.join(GEN_DIR, "png"),
+           os.path.join(GEN_DIR, "qr")]:
+    os.makedirs(_d, exist_ok=True)
+
+PAGE_W, PAGE_H = landscape(A4)   # 841.89 × 595.28 pts
 
 
-def generate_certificate_id():
+# ─────────────────────────────────────────────
+# 2. DATABASE
+# ─────────────────────────────────────────────
+
+def _conn():
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def init_db():
+    c = _conn()
+    cur = c.cursor()
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS admins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT DEFAULT '',
+        email TEXT DEFAULT ''
+    )""")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        school_name TEXT DEFAULT '',
+        school_name_x REAL DEFAULT 0.5,
+        school_name_y REAL DEFAULT 0.88,
+        school_name_size INTEGER DEFAULT 36,
+        school_name_color TEXT DEFAULT '#f0c060',
+        logo_path TEXT DEFAULT '',
+        logo_x REAL DEFAULT 0.5,
+        logo_y REAL DEFAULT 0.85,
+        logo_w INTEGER DEFAULT 100,
+        logo_h INTEGER DEFAULT 100,
+        sig_path TEXT DEFAULT '',
+        sig_x REAL DEFAULT 0.5,
+        sig_y REAL DEFAULT 0.22,
+        watermark TEXT DEFAULT '',
+        watermark_opacity REAL DEFAULT 0.08,
+        bg_path TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+
+    cur.execute("""CREATE TABLE IF NOT EXISTS certificates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        certificate_id TEXT UNIQUE NOT NULL,
+        student_name TEXT NOT NULL,
+        course TEXT DEFAULT '',
+        event TEXT DEFAULT '',
+        issue_date TEXT DEFAULT '',
+        grade TEXT DEFAULT '',
+        template_id INTEGER DEFAULT 0,
+        template_name TEXT DEFAULT '',
+        pdf_path TEXT DEFAULT '',
+        png_path TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+
+    c.commit()
+
+    # Default admin
+    if cur.execute("SELECT COUNT(*) FROM admins").fetchone()[0] == 0:
+        h = hashlib.sha256("admin123".encode()).hexdigest()
+        cur.execute("INSERT INTO admins (username,password_hash,full_name) VALUES (?,?,?)",
+                    ("admin", h, "Administrator"))
+        c.commit()
+
+    c.close()
+
+
+def _hash(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+
+def db_check_login(username: str, password: str) -> bool:
+    c = _conn()
+    row = c.execute("SELECT password_hash FROM admins WHERE username=?", (username,)).fetchone()
+    c.close()
+    return row is not None and row["password_hash"] == _hash(password)
+
+
+def db_change_password(username: str, new_pw: str):
+    c = _conn()
+    c.execute("UPDATE admins SET password_hash=? WHERE username=?", (_hash(new_pw), username))
+    c.commit()
+    c.close()
+
+
+def db_save_template(data: dict) -> int:
+    c = _conn()
+    cols = ", ".join(data.keys())
+    ph = ", ".join(["?"] * len(data))
+    cur = c.execute(f"INSERT INTO templates ({cols}) VALUES ({ph})", list(data.values()))
+    c.commit()
+    tid = cur.lastrowid
+    c.close()
+    return tid
+
+
+def db_get_templates() -> list:
+    c = _conn()
+    rows = c.execute("SELECT * FROM templates ORDER BY created_at DESC").fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def db_get_template(tid: int) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM templates WHERE id=?", (tid,)).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def db_delete_template(tid: int):
+    c = _conn()
+    c.execute("DELETE FROM templates WHERE id=?", (tid,))
+    c.commit()
+    c.close()
+
+
+def db_save_cert(data: dict):
+    c = _conn()
+    cols = ", ".join(data.keys())
+    ph = ", ".join(["?"] * len(data))
+    c.execute(f"INSERT INTO certificates ({cols}) VALUES ({ph})", list(data.values()))
+    c.commit()
+    c.close()
+
+
+def db_get_certs(name_q="", id_q="") -> list:
+    c = _conn()
+    q = "SELECT * FROM certificates WHERE 1=1"
+    params = []
+    if name_q:
+        q += " AND student_name LIKE ?"
+        params.append(f"%{name_q}%")
+    if id_q:
+        q += " AND certificate_id LIKE ?"
+        params.append(f"%{id_q}%")
+    q += " ORDER BY created_at DESC"
+    rows = c.execute(q, params).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def db_get_cert_by_id(cid: str) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM certificates WHERE certificate_id=?", (cid,)).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def db_stats() -> dict:
+    c = _conn()
+    total = c.execute("SELECT COUNT(*) FROM certificates").fetchone()[0]
+    templates = c.execute("SELECT COUNT(*) FROM templates").fetchone()[0]
+    recent = c.execute("SELECT * FROM certificates ORDER BY created_at DESC LIMIT 5").fetchall()
+    c.close()
+    return {"total": total, "templates": templates, "recent": [dict(r) for r in recent]}
+
+
+def db_check_duplicate(name: str, event: str) -> bool:
+    c = _conn()
+    row = c.execute("SELECT id FROM certificates WHERE student_name=? AND event=?", (name, event)).fetchone()
+    c.close()
+    return row is not None
+
+
+# ─────────────────────────────────────────────
+# 3. CERTIFICATE GENERATION
+# ─────────────────────────────────────────────
+
+def gen_cert_id() -> str:
     return "CERT-" + uuid.uuid4().hex[:10].upper()
 
 
-def hex_to_rgb_tuple(hex_color: str):
-    hex_color = hex_color.lstrip("#")
-    r = int(hex_color[0:2], 16) / 255.0
-    g = int(hex_color[2:4], 16) / 255.0
-    b = int(hex_color[4:6], 16) / 255.0
-    return r, g, b
-
-
-def generate_qr(certificate_id: str) -> str:
-    qr_path = os.path.join(GENERATED_DIR, "qr", f"{certificate_id}.png")
+def make_qr(cert_id: str) -> str:
+    path = os.path.join(GEN_DIR, "qr", f"{cert_id}.png")
     qr = qrcode.QRCode(version=1, box_size=6, border=2)
-    qr.add_data(certificate_id)
+    qr.add_data(cert_id)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    img.save(qr_path)
-    return qr_path
+    qr.make_image(fill_color="black", back_color="white").save(path)
+    return path
 
 
-def rl_font(font_name: str, bold: bool = False, italic: bool = False) -> str:
-    base = font_name if font_name else "Helvetica"
-    if "Helvetica" in base or "helvetica" in base:
-        if bold and italic:
-            return "Helvetica-BoldOblique"
-        elif bold:
-            return "Helvetica-Bold"
-        elif italic:
-            return "Helvetica-Oblique"
-        return "Helvetica"
-    if "Times" in base or "times" in base:
-        if bold and italic:
-            return "Times-BoldItalic"
-        elif bold:
-            return "Times-Bold"
-        elif italic:
-            return "Times-Italic"
-        return "Times-Roman"
-    if "Courier" in base:
-        if bold and italic:
-            return "Courier-BoldOblique"
-        elif bold:
-            return "Courier-Bold"
-        elif italic:
-            return "Courier-Oblique"
-        return "Courier"
-    return base
+def save_uploaded(uploaded_file, subfolder: str) -> str:
+    path = os.path.join(ASSETS_DIR, subfolder, uploaded_file.name)
+    with open(path, "wb") as f:
+        f.write(uploaded_file.getvalue())
+    return path
 
 
-def draw_text_centered(c, text, x_frac, y_frac, font, size, color_hex, align="center"):
-    r, g, b = hex_to_rgb_tuple(color_hex)
-    c.setFillColorRGB(r, g, b)
-    c.setFont(font, size)
-    x_pt = x_frac * PAGE_W
-    y_pt = y_frac * PAGE_H
-    if align == "center":
-        c.drawCentredString(x_pt, y_pt, text)
-    elif align == "right":
-        c.drawRightString(x_pt, y_pt, text)
-    else:
-        c.drawString(x_pt, y_pt, text)
+def hex_to_rgb_float(h: str) -> tuple:
+    h = h.lstrip("#")
+    return int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0
 
 
-def generate_certificate_pdf(template: dict, data: dict, cert_id: str) -> tuple[str, str]:
-    """Returns (pdf_path, png_path)"""
-    pdf_path = os.path.join(GENERATED_DIR, "pdf", f"{cert_id}.pdf")
-    png_path = os.path.join(GENERATED_DIR, "png", f"{cert_id}.png")
-    qr_path = generate_qr(cert_id)
+def _draw_default_bg(c: canvas.Canvas):
+    c.setFillColorRGB(0.99, 0.97, 0.93)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+    c.setFillColorRGB(0.15, 0.12, 0.35)
+    c.rect(0, PAGE_H - 80, PAGE_W, 80, fill=1, stroke=0)
+    c.rect(0, 0, PAGE_W, 52, fill=1, stroke=0)
+    for color, width, offset in [((0.75, 0.60, 0.20), 6, 14), ((0.85, 0.70, 0.30), 2, 22)]:
+        c.setStrokeColorRGB(*color)
+        c.setLineWidth(width)
+        c.rect(offset, offset, PAGE_W - offset * 2, PAGE_H - offset * 2, fill=0, stroke=1)
+    c.setStrokeColorRGB(0.90, 0.72, 0.25)
+    c.setLineWidth(2)
+    c.line(0, PAGE_H - 82, PAGE_W, PAGE_H - 82)
+    c.line(0, 54, PAGE_W, 54)
+    size = 28
+    for px, py in [(30, 30), (PAGE_W - 30, 30), (30, PAGE_H - 30), (PAGE_W - 30, PAGE_H - 30)]:
+        c.line(px - size, py, px + size, py)
+        c.line(px, py - size, px, py + size)
+
+
+def generate_pdf(template: dict, data: dict, cert_id: str) -> tuple[str, str]:
+    pdf_path = os.path.join(GEN_DIR, "pdf", f"{cert_id}.pdf")
+    png_path = os.path.join(GEN_DIR, "png", f"{cert_id}.png")
+    qr_path = make_qr(cert_id)
 
     c = canvas.Canvas(pdf_path, pagesize=landscape(A4))
-    c.setPageSize(landscape(A4))
 
     # Background
-    if template.get("background_path") and os.path.exists(template["background_path"]):
+    bg = template.get("bg_path", "")
+    if bg and os.path.exists(bg):
         try:
-            bg = ImageReader(template["background_path"])
-            c.drawImage(bg, 0, 0, width=PAGE_W, height=PAGE_H, preserveAspectRatio=False)
+            c.drawImage(ImageReader(bg), 0, 0, width=PAGE_W, height=PAGE_H)
         except Exception:
-            _draw_default_background(c)
+            _draw_default_bg(c)
     else:
-        _draw_default_background(c)
+        _draw_default_bg(c)
 
     # Watermark
-    if template.get("watermark_text", "").strip():
-        _draw_watermark(c, template["watermark_text"], float(template.get("watermark_transparency", 0.1)))
+    wm = template.get("watermark", "").strip()
+    if wm:
+        c.saveState()
+        c.setFillColorRGB(0.7, 0.7, 0.7)
+        c.setFillAlpha(float(template.get("watermark_opacity", 0.08)))
+        c.setFont("Helvetica-Bold", 80)
+        c.translate(PAGE_W / 2, PAGE_H / 2)
+        c.rotate(45)
+        c.drawCentredString(0, 0, wm.upper())
+        c.restoreState()
 
     # Logo
-    if template.get("logo_path") and os.path.exists(template["logo_path"]):
+    lp = template.get("logo_path", "")
+    if lp and os.path.exists(lp):
         try:
-            logo = ImageReader(template["logo_path"])
-            lw = int(template.get("logo_width", 100))
-            lh = int(template.get("logo_height", 100))
+            lw = int(template.get("logo_w", 100))
+            lh = int(template.get("logo_h", 100))
             lx = float(template.get("logo_x", 0.5)) * PAGE_W - lw / 2
             ly = float(template.get("logo_y", 0.85)) * PAGE_H - lh / 2
-            opacity = float(template.get("logo_transparency", 1.0))
-            c.saveState()
-            c.setFillAlpha(opacity)
-            c.drawImage(logo, lx, ly, width=lw, height=lh, preserveAspectRatio=True, mask="auto")
-            c.restoreState()
+            c.drawImage(ImageReader(lp), lx, ly, width=lw, height=lh, preserveAspectRatio=True, mask="auto")
         except Exception:
             pass
 
     # School name
-    if template.get("school_name", "").strip():
-        draw_text_centered(
-            c,
-            template["school_name"],
-            float(template.get("school_name_x", 0.5)),
-            float(template.get("school_name_y", 0.88)),
-            rl_font(
-                template.get("school_name_font", "Helvetica"),
-                bool(template.get("school_name_bold", 1)),
-                bool(template.get("school_name_italic", 0)),
-            ),
-            int(template.get("school_name_size", 36)),
-            template.get("school_name_color", "#1a1a2e"),
-            template.get("school_name_align", "center"),
+    sn = template.get("school_name", "").strip()
+    if sn:
+        r, g, b = hex_to_rgb_float(template.get("school_name_color", "#f0c060"))
+        c.setFillColorRGB(r, g, b)
+        c.setFont("Helvetica-Bold", int(template.get("school_name_size", 36)))
+        c.drawCentredString(
+            float(template.get("school_name_x", 0.5)) * PAGE_W,
+            float(template.get("school_name_y", 0.88)) * PAGE_H,
+            sn,
         )
 
-    # Certificate of achievement heading
+    # "Certificate of Achievement" subtitle
     c.setFillColorRGB(0.4, 0.3, 0.1)
     c.setFont("Helvetica-Oblique", 18)
-    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.75, "Certificate of Achievement")
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.74, "Certificate of Achievement")
+
+    # Divider
+    c.setStrokeColorRGB(0.75, 0.60, 0.20)
+    c.setLineWidth(1.5)
+    c.line(PAGE_W * 0.25, PAGE_H * 0.72, PAGE_W * 0.75, PAGE_H * 0.72)
 
     # Recipient name
-    draw_text_centered(
-        c,
-        data.get("name", ""),
-        float(template.get("name_x", 0.5)),
-        float(template.get("name_y", 0.62)),
-        rl_font(template.get("name_font", "Helvetica"), True, False),
-        int(template.get("name_size", 48)),
-        template.get("name_color", "#1a1a2e"),
-        "center",
-    )
+    c.setFillColorRGB(0.08, 0.08, 0.22)
+    c.setFont("Helvetica-Bold", 46)
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.60, data.get("name", ""))
 
-    # Divider line under name
-    c.setStrokeColorRGB(0.75, 0.6, 0.2)
-    c.setLineWidth(1.5)
-    name_y = float(template.get("name_y", 0.62)) * PAGE_H
-    c.line(PAGE_W * 0.2, name_y - 8, PAGE_W * 0.8, name_y - 8)
+    # Name underline
+    c.setStrokeColorRGB(0.75, 0.60, 0.20)
+    c.setLineWidth(1)
+    c.line(PAGE_W * 0.20, PAGE_H * 0.585, PAGE_W * 0.80, PAGE_H * 0.585)
 
-    # Course
+    # Course line
     if data.get("course"):
         c.setFillColorRGB(0.25, 0.25, 0.25)
-        c.setFont(rl_font(template.get("course_font", "Helvetica"), False, True), int(template.get("course_size", 22)))
-        c.drawCentredString(
-            float(template.get("course_x", 0.5)) * PAGE_W,
-            float(template.get("course_y", 0.53)) * PAGE_H,
-            f"for successfully completing  {data['course']}",
-        )
+        c.setFont("Helvetica-Oblique", 20)
+        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.51, f"for successfully completing  {data['course']}")
 
-    # Event
+    # Event line
     if data.get("event"):
         c.setFillColorRGB(0.35, 0.35, 0.35)
-        c.setFont("Helvetica", 16)
-        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.46, f"Event: {data['event']}")
+        c.setFont("Helvetica", 15)
+        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.44, f"Event: {data['event']}")
 
-    # Grade & Rank
+    # Grade
     if data.get("grade"):
-        c.setFillColorRGB(0.15, 0.3, 0.6)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(float(template.get("grade_x", 0.35)) * PAGE_W, float(template.get("grade_y", 0.38)) * PAGE_H,
-                     f"Grade: {data['grade']}")
-    if data.get("rank"):
-        c.setFillColorRGB(0.6, 0.3, 0.1)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(float(template.get("rank_x", 0.55)) * PAGE_W, float(template.get("rank_y", 0.38)) * PAGE_H,
-                     f"Rank: {data['rank']}")
+        c.setFillColorRGB(0.15, 0.30, 0.60)
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(PAGE_W * 0.28, PAGE_H * 0.37, f"Grade: {data['grade']}")
 
     # Date
-    c.setFillColorRGB(0.3, 0.3, 0.3)
-    c.setFont("Helvetica", 14)
-    c.drawString(
-        float(template.get("date_x", 0.15)) * PAGE_W,
-        float(template.get("date_y", 0.28)) * PAGE_H,
-        f"Date: {data.get('date', '')}",
-    )
+    issue_date = data.get("date", "")
+    c.setFillColorRGB(0.30, 0.30, 0.30)
+    c.setFont("Helvetica", 13)
+    c.drawString(PAGE_W * 0.15, PAGE_H * 0.28, f"Date: {issue_date}")
 
-    # Signatures
-    sig_y = float(template.get("sig_principal_y", 0.22)) * PAGE_H
-    sw = int(template.get("sig_width", 120))
-    sh = int(template.get("sig_height", 60))
-
-    if template.get("signature_principal_path") and os.path.exists(template["signature_principal_path"]):
+    # Signature
+    sp = template.get("sig_path", "")
+    sig_y_pt = float(template.get("sig_y", 0.22)) * PAGE_H
+    sig_x_pt = float(template.get("sig_x", 0.5)) * PAGE_W
+    if sp and os.path.exists(sp):
         try:
-            sig = ImageReader(template["signature_principal_path"])
-            sx = float(template.get("sig_principal_x", 0.2)) * PAGE_W - sw / 2
-            c.drawImage(sig, sx, sig_y, width=sw, height=sh, preserveAspectRatio=True, mask="auto")
+            c.drawImage(ImageReader(sp), sig_x_pt - 60, sig_y_pt, width=120, height=55,
+                        preserveAspectRatio=True, mask="auto")
         except Exception:
             pass
-
-    if template.get("signature_coordinator_path") and os.path.exists(template["signature_coordinator_path"]):
-        try:
-            sig2 = ImageReader(template["signature_coordinator_path"])
-            sx2 = float(template.get("sig_coordinator_x", 0.8)) * PAGE_W - sw / 2
-            c.drawImage(sig2, sx2, sig_y, width=sw, height=sh, preserveAspectRatio=True, mask="auto")
-        except Exception:
-            pass
-
-    # Signature labels
-    c.setFillColorRGB(0.2, 0.2, 0.2)
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(float(template.get("sig_principal_x", 0.2)) * PAGE_W, sig_y - 14, "Principal")
-    c.drawCentredString(float(template.get("sig_coordinator_x", 0.8)) * PAGE_W, sig_y - 14, "Coordinator")
-
-    # Signature lines
     c.setStrokeColorRGB(0.5, 0.5, 0.5)
     c.setLineWidth(0.8)
-    px = float(template.get("sig_principal_x", 0.2)) * PAGE_W
-    cx2 = float(template.get("sig_coordinator_x", 0.8)) * PAGE_W
-    c.line(px - 60, sig_y - 2, px + 60, sig_y - 2)
-    c.line(cx2 - 60, sig_y - 2, cx2 + 60, sig_y - 2)
+    c.line(sig_x_pt - 70, sig_y_pt - 2, sig_x_pt + 70, sig_y_pt - 2)
+    c.setFillColorRGB(0.3, 0.3, 0.3)
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(sig_x_pt, sig_y_pt - 14, "Authorized Signature")
 
     # Certificate ID
-    c.setFillColorRGB(0.5, 0.5, 0.5)
-    c.setFont("Helvetica", 9)
-    c.drawString(20, 20, f"Certificate ID: {cert_id}")
+    c.setFillColorRGB(0.55, 0.55, 0.55)
+    c.setFont("Helvetica", 8)
+    c.drawString(20, 18, f"Certificate ID: {cert_id}")
 
     # QR Code
     if os.path.exists(qr_path):
         try:
-            qr_img = ImageReader(qr_path)
-            c.drawImage(qr_img, PAGE_W - 90, 10, width=75, height=75, preserveAspectRatio=True)
+            c.drawImage(ImageReader(qr_path), PAGE_W - 88, 8, width=72, height=72, preserveAspectRatio=True)
         except Exception:
             pass
 
     c.save()
 
-    # Generate PNG preview
-    try:
-        _pdf_to_png_fallback(cert_id, pdf_path, png_path, template, data, qr_path)
-    except Exception:
-        pass
-
+    # PNG preview
+    _make_png(template, data, cert_id, qr_path, png_path)
     return pdf_path, png_path
 
 
-def _draw_default_background(c):
-    """Draw a beautiful default gradient-like background using rectangles."""
-    # Cream/ivory base
-    c.setFillColorRGB(0.99, 0.97, 0.93)
-    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+def _make_png(template: dict, data: dict, cert_id: str, qr_path: str, png_path: str):
+    W, H = 1684, 1190
+    img = Image.new("RGB", (W, H), (252, 248, 235))
 
-    # Decorative outer border
-    c.setStrokeColorRGB(0.75, 0.60, 0.20)
-    c.setLineWidth(6)
-    c.rect(15, 15, PAGE_W - 30, PAGE_H - 30, fill=0, stroke=1)
+    bg = template.get("bg_path", "")
+    if bg and os.path.exists(bg):
+        try:
+            bgimg = Image.open(bg).resize((W, H))
+            img.paste(bgimg, (0, 0))
+        except Exception:
+            pass
 
-    c.setStrokeColorRGB(0.85, 0.70, 0.30)
-    c.setLineWidth(2)
-    c.rect(22, 22, PAGE_W - 44, PAGE_H - 44, fill=0, stroke=1)
-
-    # Corner decorations
-    size = 30
-    c.setStrokeColorRGB(0.75, 0.60, 0.20)
-    c.setLineWidth(2)
-    for (cx, cy) in [(30, 30), (PAGE_W - 30, 30), (30, PAGE_H - 30), (PAGE_W - 30, PAGE_H - 30)]:
-        c.line(cx - size, cy, cx + size, cy)
-        c.line(cx, cy - size, cx, cy + size)
-
-    # Header band
-    c.setFillColorRGB(0.15, 0.12, 0.35)
-    c.rect(0, PAGE_H - 80, PAGE_W, 80, fill=1, stroke=0)
-
-    # Footer band
-    c.setFillColorRGB(0.15, 0.12, 0.35)
-    c.rect(0, 0, PAGE_W, 55, fill=1, stroke=0)
-
-    # Gold accent lines
-    c.setStrokeColorRGB(0.90, 0.72, 0.25)
-    c.setLineWidth(2)
-    c.line(0, PAGE_H - 82, PAGE_W, PAGE_H - 82)
-    c.line(0, 57, PAGE_W, 57)
-
-
-def _draw_watermark(c, text, opacity):
-    c.saveState()
-    c.setFillColorRGB(0.7, 0.7, 0.7)
-    c.setFillAlpha(opacity)
-    c.setFont("Helvetica-Bold", 80)
-    c.translate(PAGE_W / 2, PAGE_H / 2)
-    c.rotate(45)
-    c.drawCentredString(0, 0, text.upper())
-    c.restoreState()
-
-
-def _pdf_to_png_fallback(cert_id, pdf_path, png_path, template, data, qr_path):
-    """Create PNG preview using Pillow — matches PDF layout."""
-    W, H = 1684, 1190  # A4 landscape @ 2x
-    img = Image.new("RGB", (W, H), (252, 247, 235))
     draw = ImageDraw.Draw(img)
-
-    # Border
-    for i, (c, w) in enumerate([(( 191, 153, 51), 12), ((217, 179, 77), 4)]):
-        o = i * 14
-        draw.rectangle([30 + o, 30 + o, W - 30 - o, H - 30 - o], outline=c, width=w)
 
     # Header & footer bands
     draw.rectangle([0, 0, W, 160], fill=(38, 30, 89))
-    draw.rectangle([0, H - 110, W, H], fill=(38, 30, 89))
+    draw.rectangle([0, H - 104, W, H], fill=(38, 30, 89))
     draw.line([(0, 162), (W, 162)], fill=(230, 184, 64), width=4)
-    draw.line([(0, H - 113), (W, H - 113)], fill=(230, 184, 64), width=4)
+    draw.line([(0, H - 107), (W, H - 107)], fill=(230, 184, 64), width=4)
 
-    # School name on header
-    school = template.get("school_name", "")
-    if school:
+    # Borders
+    for col, w, o in [((191, 153, 51), 12, 28), ((217, 179, 77), 4, 42)]:
+        draw.rectangle([o, o, W - o, H - o], outline=col, width=w)
+
+    def _font(size, bold=False, italic=False):
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf" if bold else
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    pass
+        return ImageFont.load_default()
+
+    def _centered(text, y, font, fill):
+        bb = draw.textbbox((0, 0), text, font=font)
+        x = (W - (bb[2] - bb[0])) // 2
+        draw.text((x, y), text, fill=fill, font=font)
+
+    # School name
+    sn = template.get("school_name", "")
+    if sn:
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 52)
+            r, g, b = hex_to_rgb_float(template.get("school_name_color", "#f0c060"))
+            fill_color = (int(r * 255), int(g * 255), int(b * 255))
         except Exception:
-            font = ImageFont.load_default()
-        bbox = draw.textbbox((0, 0), school, font=font)
-        tw = bbox[2] - bbox[0]
-        draw.text(((W - tw) // 2, 55), school, fill=(240, 192, 96), font=font)
+            fill_color = (240, 192, 96)
+        _centered(sn, 54, _font(int(template.get("school_name_size", 36)) + 10, bold=True), fill_color)
 
-    # Title
-    try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf", 36)
-    except Exception:
-        title_font = ImageFont.load_default()
-    t = "Certificate of Achievement"
-    bbox = draw.textbbox((0, 0), t, font=title_font)
-    draw.text(((W - (bbox[2] - bbox[0])) // 2, 210), t, fill=(102, 77, 26), font=title_font)
+    # Logo
+    lp = template.get("logo_path", "")
+    if lp and os.path.exists(lp):
+        try:
+            lw = int(template.get("logo_w", 100)) * 2
+            lh = int(template.get("logo_h", 100)) * 2
+            logo_img = Image.open(lp).convert("RGBA").resize((lw, lh))
+            lx = int(float(template.get("logo_x", 0.5)) * W) - lw // 2
+            ly = int(float(template.get("logo_y", 0.85)) * H) - lh // 2
+            img.paste(logo_img, (lx, ly), logo_img)
+        except Exception:
+            pass
+
+    # Watermark
+    wm = template.get("watermark", "").strip()
+    if wm:
+        try:
+            wm_layer = Image.new("RGBA", (W, H), (255, 255, 255, 0))
+            wm_draw = ImageDraw.Draw(wm_layer)
+            wm_font = _font(140, bold=True)
+            wm_draw.text((W // 4, H // 3), wm.upper(), fill=(128, 128, 128, int(float(template.get("watermark_opacity", 0.08)) * 255)), font=wm_font)
+            img = Image.alpha_composite(img.convert("RGBA"), wm_layer).convert("RGB")
+            draw = ImageDraw.Draw(img)
+        except Exception:
+            pass
+
+    # "Certificate of Achievement"
+    _centered("Certificate of Achievement", 210, _font(34, italic=True), (102, 77, 26))
+    draw.line([(W // 4, 268), (3 * W // 4, 268)], fill=(191, 153, 51), width=3)
 
     # Name
-    try:
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 72)
-    except Exception:
-        name_font = ImageFont.load_default()
-    name = data.get("name", "")
-    bbox = draw.textbbox((0, 0), name, font=name_font)
-    tw = bbox[2] - bbox[0]
-    name_y = 420
-    draw.text(((W - tw) // 2, name_y), name, fill=(26, 26, 46), font=name_font)
-    draw.line([(W * 0.2, name_y + 88), (W * 0.8, name_y + 88)], fill=(191, 153, 51), width=3)
+    _centered(data.get("name", ""), 310, _font(72, bold=True), (20, 20, 56))
+    draw.line([(int(W * 0.2), 408), (int(W * 0.8), 408)], fill=(191, 153, 51), width=2)
 
     # Course
     if data.get("course"):
-        try:
-            cf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerifCondensed-Italic.ttf", 32)
-        except Exception:
-            cf = ImageFont.load_default()
-        ct = f"for successfully completing  {data['course']}"
-        bbox = draw.textbbox((0, 0), ct, font=cf)
-        draw.text(((W - (bbox[2] - bbox[0])) // 2, 540), ct, fill=(64, 64, 64), font=cf)
+        _centered(f"for successfully completing  {data['course']}", 440, _font(32, italic=True), (64, 64, 64))
 
-    # Event, grade, rank, date
-    try:
-        sf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 26)
-        sbf = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
-    except Exception:
-        sf = sbf = ImageFont.load_default()
-
+    # Event
     if data.get("event"):
-        et = f"Event: {data['event']}"
-        bbox = draw.textbbox((0, 0), et, font=sf)
-        draw.text(((W - (bbox[2] - bbox[0])) // 2, 620), et, fill=(89, 89, 89), font=sf)
+        _centered(f"Event: {data['event']}", 498, _font(28), (89, 89, 89))
 
+    # Grade
     if data.get("grade"):
-        draw.text((int(W * 0.32), 720), f"Grade: {data['grade']}", fill=(38, 77, 153), font=sbf)
-    if data.get("rank"):
-        draw.text((int(W * 0.55), 720), f"Rank: {data['rank']}", fill=(153, 77, 26), font=sbf)
-    if data.get("date"):
-        draw.text((int(W * 0.1), 820), f"Date: {data['date']}", fill=(77, 77, 77), font=sf)
+        draw.text((int(W * 0.28), 570), f"Grade: {data['grade']}", fill=(38, 77, 153), font=_font(28, bold=True))
 
-    # Sig lines
-    draw.line([(int(W * 0.12), 970), (int(W * 0.38), 970)], fill=(128, 128, 128), width=2)
-    draw.line([(int(W * 0.62), 970), (int(W * 0.88), 970)], fill=(128, 128, 128), width=2)
-    draw.text((int(W * 0.18), 976), "Principal", fill=(51, 51, 51), font=sf)
-    draw.text((int(W * 0.68), 976), "Coordinator", fill=(51, 51, 51), font=sf)
+    # Date
+    if data.get("date"):
+        draw.text((int(W * 0.12), 660), f"Date: {data['date']}", fill=(77, 77, 77), font=_font(26))
+
+    # Signature
+    sp = template.get("sig_path", "")
+    sx = int(float(template.get("sig_x", 0.5)) * W)
+    sy = int(float(template.get("sig_y", 0.22)) * H)
+    if sp and os.path.exists(sp):
+        try:
+            sig_img = Image.open(sp).convert("RGBA").resize((240, 110))
+            img.paste(sig_img, (sx - 120, sy - 120), sig_img)
+            draw = ImageDraw.Draw(img)
+        except Exception:
+            pass
+    draw.line([(sx - 140, sy), (sx + 140, sy)], fill=(128, 128, 128), width=2)
+    draw.text((sx - 100, sy + 6), "Authorized Signature", fill=(51, 51, 51), font=_font(22))
 
     # Cert ID
-    try:
-        small_f = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-    except Exception:
-        small_f = ImageFont.load_default()
-    draw.text((40, H - 90), f"Certificate ID: {cert_id}", fill=(200, 200, 200), font=small_f)
+    draw.text((40, H - 88), f"Certificate ID: {cert_id}", fill=(200, 200, 200), font=_font(18))
 
-    # QR Code
+    # QR
     if os.path.exists(qr_path):
         try:
             qr_img = Image.open(qr_path).resize((150, 150))
@@ -778,242 +520,1190 @@ def _pdf_to_png_fallback(cert_id, pdf_path, png_path, template, data, qr_path):
         except Exception:
             pass
 
-    img.save(png_path, "PNG", dpi=(150, 150))
+    img.save(png_path, "PNG")
 
 
-def generate_bulk(template: dict, rows: list) -> list:
-    """Generate certificates for a list of dicts. Returns list of result dicts."""
+def bulk_generate(template: dict, rows: list) -> tuple[list, bytes]:
     results = []
-    for row in rows:
-        cert_id = generate_certificate_id()
-        try:
-            pdf_path, png_path = generate_certificate_pdf(template, row, cert_id)
-            results.append({
-                "cert_id": cert_id,
-                "name": row.get("name", ""),
-                "pdf_path": pdf_path,
-                "png_path": png_path,
-                "status": "success",
-                "error": "",
-            })
-        except Exception as e:
-            results.append({
-                "cert_id": cert_id,
-                "name": row.get("name", ""),
-                "pdf_path": "",
-                "png_path": "",
-                "status": "error",
-                "error": str(e),
-            })
-    return results
-      import streamlit as st
-import os
-from PIL import Image
-import io
-import database as db
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as zf:
+        for row in rows:
+            cert_id = gen_cert_id()
+            try:
+                pdf_path, png_path = generate_pdf(template, row, cert_id)
+                db_save_cert({
+                    "certificate_id": cert_id,
+                    "student_name": row.get("name", ""),
+                    "course": row.get("course", ""),
+                    "event": row.get("event", ""),
+                    "issue_date": row.get("date", ""),
+                    "grade": row.get("grade", ""),
+                    "template_id": template.get("id", 0),
+                    "template_name": template.get("name", ""),
+                    "pdf_path": pdf_path,
+                    "png_path": png_path,
+                })
+                with open(pdf_path, "rb") as f:
+                    zf.writestr(f"{cert_id}_{row.get('name','')}.pdf", f.read())
+                results.append({"name": row.get("name", ""), "cert_id": cert_id, "status": "✅ Success"})
+            except Exception as e:
+                results.append({"name": row.get("name", ""), "cert_id": cert_id, "status": f"❌ {e}"})
+    zip_buf.seek(0)
+    return results, zip_buf.read()
 
-ASSETS_DIR = "assets"
-os.makedirs(ASSETS_DIR, exist_ok=True)
-os.makedirs(os.path.join(ASSETS_DIR, "backgrounds"), exist_ok=True)
-os.makedirs(os.path.join(ASSETS_DIR, "logos"), exist_ok=True)
-os.makedirs(os.path.join(ASSETS_DIR, "signatures"), exist_ok=True)
 
-FONTS = ["Helvetica", "Helvetica-Bold", "Times-Roman", "Times-Bold", "Courier", "Courier-Bold"]
-FONT_DISPLAY = {
-    "Helvetica": "Helvetica (Sans-Serif)",
-    "Helvetica-Bold": "Helvetica Bold",
-    "Times-Roman": "Times Roman (Serif)",
-    "Times-Bold": "Times Bold",
-    "Courier": "Courier (Monospace)",
-    "Courier-Bold": "Courier Bold",
+# ─────────────────────────────────────────────
+# 4. PAGE SETUP & CSS
+# ─────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="CertifyPro — School Certificate Generator",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+/* ── Root variables ── */
+:root {
+    --gold:     #c9a84c;
+    --gold-lt:  #f0c060;
+    --navy:     #0f1b3d;
+    --navy-lt:  #1a2d5a;
+    --cream:    #fdf8f0;
+    --text:     #1e1e2e;
+    --muted:    #6b7280;
+    --border:   #e5e0d5;
+    --success:  #16a34a;
+    --danger:   #dc2626;
 }
 
+/* ── Global ── */
+html, body, .stApp {
+    font-family: 'DM Sans', sans-serif !important;
+    background: #f4f1eb !important;
+    color: var(--text) !important;
+}
 
-def save_uploaded_file(uploaded_file, subfolder):
-    path = os.path.join(ASSETS_DIR, subfolder, uploaded_file.name)
-    with open(path, "wb") as f:
-        f.write(uploaded_file.read())
-    return path
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: var(--navy) !important;
+    border-right: 1px solid rgba(201,168,76,0.3) !important;
+}
+[data-testid="stSidebar"] * { color: #e8e0d0 !important; }
+
+.sidebar-brand {
+    text-align: center;
+    padding: 24px 16px 20px;
+    border-bottom: 1px solid rgba(201,168,76,0.25);
+    margin-bottom: 16px;
+}
+.sidebar-brand .brand-icon { font-size: 2.8rem; }
+.sidebar-brand .brand-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    color: var(--gold-lt) !important;
+    display: block;
+    margin-top: 6px;
+}
+.sidebar-brand .brand-sub {
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4) !important;
+    margin-top: 2px;
+    display: block;
+}
+
+/* ── Sidebar radio ── */
+[data-testid="stSidebar"] .stRadio label {
+    display: block;
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin: 2px 0;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(201,168,76,0.15) !important;
+}
+
+/* ── Page header ── */
+.page-header {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-lt) 100%);
+    border-radius: 16px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+    border: 1px solid rgba(201,168,76,0.3);
+    box-shadow: 0 4px 24px rgba(15,27,61,0.12);
+}
+.page-header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.9rem;
+    color: var(--gold-lt) !important;
+    margin: 0 0 4px;
+}
+.page-header p {
+    color: rgba(255,255,255,0.55) !important;
+    font-size: 0.85rem;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+/* ── Stat cards ── */
+.stat-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s;
+}
+.stat-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+.stat-icon {
+    width: 56px; height: 56px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem;
+    flex-shrink: 0;
+}
+.stat-icon.gold  { background: rgba(201,168,76,0.12); }
+.stat-icon.navy  { background: rgba(15,27,61,0.08); }
+.stat-icon.green { background: rgba(22,163,74,0.1); }
+.stat-val  { font-size: 2rem; font-weight: 700; color: var(--navy); line-height:1; }
+.stat-lbl  { font-size: 0.78rem; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+/* ── Cards ── */
+.card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    margin-bottom: 20px;
+}
+.card-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: var(--navy);
+    margin: 0 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--gold);
+    display: inline-block;
+}
+
+/* ── Cert row ── */
+.cert-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+.cert-row:last-child { border-bottom: none; }
+.cert-id { font-family: monospace; color: var(--navy); font-weight: 600; }
+.cert-name { color: var(--text); font-weight: 500; }
+.cert-date { color: var(--muted); font-size: 0.78rem; }
+
+/* ── Badges ── */
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+.badge-gold  { background: rgba(201,168,76,0.15); color: #92700e; }
+.badge-navy  { background: rgba(15,27,61,0.08); color: var(--navy); }
+.badge-green { background: rgba(22,163,74,0.1);  color: #15803d; }
+.badge-red   { background: rgba(220,38,38,0.1);  color: #b91c1c; }
+
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg, var(--navy), var(--navy-lt)) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(135deg, #182f5c, #243f6e) !important;
+    box-shadow: 0 4px 12px rgba(15,27,61,0.3) !important;
+    transform: translateY(-1px) !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--gold), #a8822a) !important;
+    color: var(--navy) !important;
+}
+
+/* ── Inputs ── */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stTextArea > div > div > textarea,
+.stNumberInput > div > div > input {
+    border-radius: 8px !important;
+    border: 1.5px solid var(--border) !important;
+    font-family: 'DM Sans', sans-serif !important;
+    transition: border-color 0.2s !important;
+}
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+    border-color: var(--gold) !important;
+    box-shadow: 0 0 0 3px rgba(201,168,76,0.15) !important;
+}
+
+/* ── Tab bar ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px;
+    background: #ede9e0;
+    padding: 4px;
+    border-radius: 10px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    padding: 8px 18px !important;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--navy) !important;
+    color: var(--gold-lt) !important;
+}
+
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    border: 2px dashed var(--border) !important;
+    border-radius: 12px !important;
+    background: #faf8f4 !important;
+}
+
+/* ── Expanders ── */
+.streamlit-expanderHeader {
+    font-family: 'DM Sans', sans-serif !important;
+    font-weight: 500 !important;
+    border-radius: 8px !important;
+    background: #f9f6f0 !important;
+}
+
+/* ── Success / Error alerts ── */
+.stAlert { border-radius: 10px !important; }
+
+/* ── Login page ── */
+.login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(160deg, #0a122b 0%, #1a2d5a 50%, #0f1b3d 100%);
+}
+.login-box {
+    width: 420px;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 20px;
+    padding: 48px 44px 40px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+}
+.login-logo { text-align:center; font-size: 3rem; margin-bottom:12px; }
+.login-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.9rem;
+    color: var(--gold-lt);
+    text-align: center;
+    margin-bottom: 4px;
+}
+.login-sub {
+    text-align: center;
+    font-size: 0.72rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    margin-bottom: 36px;
+}
+
+/* ── Divider ── */
+.gold-divider {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    margin: 20px 0;
+}
+
+/* ── Quick-action buttons ── */
+.quick-actions .stButton > button {
+    background: white !important;
+    color: var(--navy) !important;
+    border: 1.5px solid var(--border) !important;
+    border-radius: 12px !important;
+    padding: 14px 16px !important;
+    font-size: 0.82rem !important;
+    width: 100% !important;
+    transition: all 0.2s !important;
+}
+.quick-actions .stButton > button:hover {
+    border-color: var(--gold) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f4f1eb; }
+::-webkit-scrollbar-thumb { background: #c9a84c; border-radius: 4px; }
+
+/* ── Hide Streamlit decoration ── */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
 
 
-def render_template_builder():
-    st.markdown("## 🎨 Template Builder")
-    st.markdown("---")
+# ─────────────────────────────────────────────
+# 5. SESSION STATE INIT
+# ─────────────────────────────────────────────
 
-    templates = db.get_templates()
-    tab1, tab2, tab3 = st.tabs(["➕ Create New Template", "✏️ Edit Template", "🗑️ Manage Templates"])
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "admin_username" not in st.session_state:
+    st.session_state.admin_username = ""
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
 
-    with tab1:
-        render_template_form(None)
 
-    with tab2:
-        if not templates:
-            st.info("No templates yet. Create one first.")
+# ─────────────────────────────────────────────
+# 6. LOGIN PAGE
+# ─────────────────────────────────────────────
+
+def show_login():
+    st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(160deg,#0a122b 0%,#1a2d5a 50%,#0f1b3d 100%) !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown('<div class="login-logo">🎓</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">CertifyPro</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-sub">School Certificate Generator</div>', unsafe_allow_html=True)
+
+        with st.form("login_form"):
+            username = st.text_input("Username", placeholder="admin")
+            password = st.text_input("Password", type="password", placeholder="••••••••")
+            submitted = st.form_submit_button("Sign In", use_container_width=True)
+
+            if submitted:
+                if db_check_login(username.strip(), password):
+                    st.session_state.authenticated = True
+                    st.session_state.admin_username = username.strip()
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials. Try admin / admin123")
+
+        st.markdown(
+            '<p style="text-align:center;color:rgba(255,255,255,0.25);'
+            'font-size:0.72rem;margin-top:16px;">Default: admin / admin123</p>',
+            unsafe_allow_html=True,
+        )
+
+
+# ─────────────────────────────────────────────
+# 7. SIDEBAR
+# ─────────────────────────────────────────────
+
+def show_sidebar():
+    with st.sidebar:
+        st.markdown("""
+        <div class="sidebar-brand">
+            <div class="brand-icon">🎓</div>
+            <span class="brand-title">CertifyPro</span>
+            <span class="brand-sub">Admin Panel</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        pages = [
+            "📊 Dashboard",
+            "🎨 Template Builder",
+            "📄 Single Certificate",
+            "📦 Bulk Generation",
+            "🔍 QR Verification",
+            "📜 Certificate History",
+            "⚙️ Settings",
+        ]
+
+        page = st.radio("Navigation", pages, label_visibility="collapsed")
+        st.session_state.page = page.split(" ", 1)[1]
+
+        st.markdown("<hr style='border-color:rgba(201,168,76,0.2);margin:16px 0;'>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="padding:0 8px;font-size:0.78rem;color:rgba(255,255,255,0.4);">'
+            f'Logged in as<br>'
+            f'<span style="color:#f0c060;font-weight:600;">{st.session_state.admin_username}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.admin_username = ""
+            st.rerun()
+
+
+# ─────────────────────────────────────────────
+# 8. PAGE: DASHBOARD
+# ─────────────────────────────────────────────
+
+def page_dashboard():
+    stats = db_stats()
+
+    st.markdown("""
+    <div class="page-header">
+        <h1>📊 Dashboard</h1>
+        <p>Welcome back — here's your certificate management overview</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-icon gold">🏅</div>
+            <div>
+                <div class="stat-val">{stats['total']}</div>
+                <div class="stat-lbl">Total Certificates</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-icon navy">🎨</div>
+            <div>
+                <div class="stat-val">{stats['templates']}</div>
+                <div class="stat-lbl">Templates Saved</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+    with c3:
+        today_count = sum(
+            1 for r in stats["recent"]
+            if r.get("created_at", "")[:10] == datetime.now().strftime("%Y-%m-%d")
+        )
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-icon green">✅</div>
+            <div>
+                <div class="stat-val">{today_count}</div>
+                <div class="stat-lbl">Generated Today</div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_r, col_q = st.columns([3, 2])
+
+    with col_r:
+        st.markdown('<div class="card"><div class="card-title">Recent Certificates</div>', unsafe_allow_html=True)
+        if not stats["recent"]:
+            st.info("No certificates yet.")
         else:
-            template_names = {t["name"]: t["id"] for t in templates}
-            selected = st.selectbox("Select template to edit", list(template_names.keys()))
-            if selected:
-                tpl = db.get_template(template_names[selected])
-                render_template_form(tpl)
+            for r in stats["recent"]:
+                st.markdown(f"""
+                <div class="cert-row">
+                    <div>
+                        <div class="cert-name">{r['student_name']}</div>
+                        <div class="cert-id">{r['certificate_id']}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div class="badge badge-gold">{r.get('course','—')}</div>
+                        <div class="cert-date" style="margin-top:4px">{r.get('created_at','')[:10]}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with tab3:
-        render_manage_templates(templates)
+    with col_q:
+        st.markdown('<div class="card"><div class="card-title">Quick Actions</div>', unsafe_allow_html=True)
+        st.markdown('<div class="quick-actions">', unsafe_allow_html=True)
+        if st.button("➕  New Certificate", use_container_width=True):
+            st.session_state.page = "Single Certificate"
+            st.rerun()
+        if st.button("📦  Bulk Generate", use_container_width=True):
+            st.session_state.page = "Bulk Generation"
+            st.rerun()
+        if st.button("🎨  Create Template", use_container_width=True):
+            st.session_state.page = "Template Builder"
+            st.rerun()
+        if st.button("🔍  Verify Certificate", use_container_width=True):
+            st.session_state.page = "QR Verification"
+            st.rerun()
+        st.markdown("</div></div>", unsafe_allow_html=True)
 
 
-def render_template_form(existing=None):
-    is_edit = existing is not None
-    prefix = "edit_" if is_edit else "new_"
+# ─────────────────────────────────────────────
+# 9. PAGE: TEMPLATE BUILDER
+# ─────────────────────────────────────────────
 
-    with st.form(f"{prefix}template_form"):
-        st.markdown("### 📋 Basic Information")
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("Template Name *", value=existing["name"] if existing else "", key=f"{prefix}name")
-            school_name = st.text_input("School Name", value=existing.get("school_name", "") if existing else db.get_setting("school_name"), key=f"{prefix}school_name")
-        with col2:
-            watermark_text = st.text_input("Watermark Text (optional)", value=existing.get("watermark_text", "") if existing else "", key=f"{prefix}wm_text")
-            watermark_transparency = st.slider("Watermark Opacity", 0.0, 0.5, float(existing.get("watermark_transparency", 0.08)) if existing else 0.08, 0.01, key=f"{prefix}wm_opacity")
+def page_template_builder():
+    st.markdown("""
+    <div class="page-header">
+        <h1>🎨 Template Builder</h1>
+        <p>Design and save reusable certificate templates</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        st.markdown("### 🖼️ Images")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            bg_file = st.file_uploader("Background Image", type=["png", "jpg", "jpeg"], key=f"{prefix}bg")
-            if existing and existing.get("background_path"):
-                st.caption(f"Current: {os.path.basename(existing['background_path'])}")
-        with col2:
-            logo_file = st.file_uploader("School Logo/Emblem", type=["png", "jpg", "jpeg"], key=f"{prefix}logo")
-            if existing and existing.get("logo_path"):
-                st.caption(f"Current: {os.path.basename(existing['logo_path'])}")
-        with col3:
-            sig_principal = st.file_uploader("Principal Signature", type=["png", "jpg", "jpeg"], key=f"{prefix}sig_p")
-            sig_coordinator = st.file_uploader("Coordinator Signature", type=["png", "jpg", "jpeg"], key=f"{prefix}sig_c")
+    tab_new, tab_manage = st.tabs(["➕ Create / Edit Template", "🗂️ Manage Templates"])
 
-        st.markdown("### 📌 Element Positions (0.0 = left/bottom, 1.0 = right/top)")
+    with tab_new:
+        templates = db_get_templates()
+        mode = st.radio("Mode", ["Create New", "Edit Existing"], horizontal=True)
+        existing = None
 
-        st.markdown("**School Name Position & Style**")
-        c1, c2, c3, c4 = st.columns(4)
+        if mode == "Edit Existing":
+            if not templates:
+                st.info("No templates found. Create one first.")
+                return
+            sel = st.selectbox("Select template", [t["name"] for t in templates])
+            existing = next((t for t in templates if t["name"] == sel), None)
+
+        _template_form(existing)
+
+    with tab_manage:
+        templates = db_get_templates()
+        if not templates:
+            st.info("No templates saved yet.")
+        else:
+            for t in templates:
+                with st.expander(f"🎨 {t['name']}  —  created {t['created_at'][:10]}"):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        st.write(f"**School:** {t.get('school_name','—')}")
+                        st.write(f"**Watermark:** {t.get('watermark','—') or '—'}")
+                        st.write(f"**Background:** {'Set' if t.get('bg_path') else 'Default'}")
+                        st.write(f"**Logo:** {'Set' if t.get('logo_path') else 'None'}")
+                        st.write(f"**Signature:** {'Set' if t.get('sig_path') else 'None'}")
+                    with c2:
+                        if st.button("🗑️ Delete", key=f"del_t_{t['id']}"):
+                            db_delete_template(t["id"])
+                            st.success("Deleted.")
+                            st.rerun()
+
+
+def _template_form(existing=None):
+    px = "e_" if existing else "n_"
+
+    def _v(key, default):
+        return existing.get(key, default) if existing else default
+
+    with st.form(f"{px}tpl_form", clear_on_submit=False):
+        st.markdown("#### 📋 Basic Info")
+        c1, c2 = st.columns(2)
         with c1:
-            sn_x = st.slider("X Position", 0.0, 1.0, float(existing.get("school_name_x", 0.5)) if existing else 0.5, 0.01, key=f"{prefix}sn_x")
+            name = st.text_input("Template Name *", value=_v("name", ""))
+            school_name = st.text_input("School / Institution Name", value=_v("school_name", "Excellence Academy"))
         with c2:
-            sn_y = st.slider("Y Position", 0.0, 1.0, float(existing.get("school_name_y", 0.88)) if existing else 0.88, 0.01, key=f"{prefix}sn_y")
-        with c3:
-            sn_size = st.number_input("Font Size", 12, 72, int(existing.get("school_name_size", 36)) if existing else 36, key=f"{prefix}sn_size")
-        with c4:
-            sn_color = st.color_picker("Color", existing.get("school_name_color", "#f0c060") if existing else "#f0c060", key=f"{prefix}sn_color")
+            watermark = st.text_input("Watermark Text (optional)", value=_v("watermark", ""))
+            watermark_opacity = st.slider("Watermark Opacity", 0.02, 0.4,
+                                          float(_v("watermark_opacity", 0.08)), 0.01)
 
+        st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
+        st.markdown("#### 🖼️ Upload Images")
         c1, c2, c3 = st.columns(3)
         with c1:
-            sn_font = st.selectbox("Font", FONTS, index=FONTS.index(existing.get("school_name_font", "Helvetica")) if existing and existing.get("school_name_font") in FONTS else 0, key=f"{prefix}sn_font")
+            bg_file   = st.file_uploader("Background Image", type=["png","jpg","jpeg"], key=f"{px}bg")
+            if existing and existing.get("bg_path"):
+                st.caption(f"Current: {os.path.basename(existing['bg_path'])}")
         with c2:
-            sn_bold = st.checkbox("Bold", value=bool(existing.get("school_name_bold", True)) if existing else True, key=f"{prefix}sn_bold")
-            sn_italic = st.checkbox("Italic", value=bool(existing.get("school_name_italic", False)) if existing else False, key=f"{prefix}sn_italic")
+            logo_file = st.file_uploader("School Logo / Emblem", type=["png","jpg","jpeg"], key=f"{px}logo")
+            if existing and existing.get("logo_path"):
+                st.caption(f"Current: {os.path.basename(existing['logo_path'])}")
         with c3:
-            sn_align = st.selectbox("Alignment", ["center", "left", "right"], index=["center", "left", "right"].index(existing.get("school_name_align", "center")) if existing else 0, key=f"{prefix}sn_align")
+            sig_file  = st.file_uploader("Signature Image", type=["png","jpg","jpeg"], key=f"{px}sig")
+            if existing and existing.get("sig_path"):
+                st.caption(f"Current: {os.path.basename(existing['sig_path'])}")
 
-        st.markdown("**Logo Position & Size**")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        with c1:
-            logo_x = st.slider("Logo X", 0.0, 1.0, float(existing.get("logo_x", 0.5)) if existing else 0.5, 0.01, key=f"{prefix}logo_x")
-        with c2:
-            logo_y = st.slider("Logo Y", 0.0, 1.0, float(existing.get("logo_y", 0.85)) if existing else 0.85, 0.01, key=f"{prefix}logo_y")
-        with c3:
-            logo_w = st.number_input("Logo Width (px)", 20, 300, int(existing.get("logo_width", 100)) if existing else 100, key=f"{prefix}logo_w")
-        with c4:
-            logo_h = st.number_input("Logo Height (px)", 20, 300, int(existing.get("logo_height", 100)) if existing else 100, key=f"{prefix}logo_h")
-        with c5:
-            logo_trans = st.slider("Logo Opacity", 0.1, 1.0, float(existing.get("logo_transparency", 1.0)) if existing else 1.0, 0.05, key=f"{prefix}logo_trans")
-
-        st.markdown("**Name Text Position**")
+        st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
+        st.markdown("#### 📌 School Name Style & Position")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            name_x = st.slider("Name X", 0.0, 1.0, float(existing.get("name_x", 0.5)) if existing else 0.5, 0.01, key=f"{prefix}name_x")
+            sn_x    = st.slider("X (0=left, 1=right)", 0.0, 1.0, float(_v("school_name_x", 0.5)), 0.01, key=f"{px}sn_x")
         with c2:
-            name_y = st.slider("Name Y", 0.0, 1.0, float(existing.get("name_y", 0.55)) if existing else 0.55, 0.01, key=f"{prefix}name_y")
+            sn_y    = st.slider("Y (0=bottom, 1=top)", 0.0, 1.0, float(_v("school_name_y", 0.88)), 0.01, key=f"{px}sn_y")
         with c3:
-            name_size = st.number_input("Name Font Size", 18, 96, int(existing.get("name_size", 48)) if existing else 48, key=f"{prefix}name_size")
+            sn_size = st.number_input("Font Size", 14, 80, int(_v("school_name_size", 36)), key=f"{px}sn_sz")
         with c4:
-            name_color = st.color_picker("Name Color", existing.get("name_color", "#1a1a2e") if existing else "#1a1a2e", key=f"{prefix}name_color")
+            sn_color= st.color_picker("Color", _v("school_name_color", "#f0c060"), key=f"{px}sn_col")
 
-        st.markdown("**Signature Positions**")
+        st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
+        st.markdown("#### 🖼️ Logo Position & Size")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sig_p_x = st.slider("Principal X", 0.0, 1.0, float(existing.get("sig_principal_x", 0.2)) if existing else 0.2, 0.01, key=f"{prefix}sig_p_x")
+            logo_x = st.slider("Logo X", 0.0, 1.0, float(_v("logo_x", 0.5)), 0.01, key=f"{px}lx")
         with c2:
-            sig_p_y = st.slider("Principal Y", 0.0, 1.0, float(existing.get("sig_principal_y", 0.22)) if existing else 0.22, 0.01, key=f"{prefix}sig_p_y")
+            logo_y = st.slider("Logo Y", 0.0, 1.0, float(_v("logo_y", 0.85)), 0.01, key=f"{px}ly")
         with c3:
-            sig_c_x = st.slider("Coordinator X", 0.0, 1.0, float(existing.get("sig_coordinator_x", 0.8)) if existing else 0.8, 0.01, key=f"{prefix}sig_c_x")
+            logo_w = st.number_input("Logo Width (px)", 20, 300, int(_v("logo_w", 100)), key=f"{px}lw")
         with c4:
-            sig_c_y = st.slider("Coordinator Y", 0.0, 1.0, float(existing.get("sig_coordinator_y", 0.22)) if existing else 0.22, 0.01, key=f"{prefix}sig_c_y")
+            logo_h = st.number_input("Logo Height (px)", 20, 300, int(_v("logo_h", 100)), key=f"{px}lh")
 
-        submitted = st.form_submit_button("💾 Save Template", use_container_width=True)
+        st.markdown('<hr class="gold-divider">', unsafe_allow_html=True)
+        st.markdown("#### ✍️ Signature Position")
+        c1, c2 = st.columns(2)
+        with c1:
+            sig_x = st.slider("Signature X", 0.0, 1.0, float(_v("sig_x", 0.5)), 0.01, key=f"{px}sx")
+        with c2:
+            sig_y = st.slider("Signature Y", 0.0, 1.0, float(_v("sig_y", 0.22)), 0.01, key=f"{px}sy")
 
-        if submitted:
+        st.markdown("""
+        <div style="background:#f0ece0;border-left:4px solid #c9a84c;padding:12px 16px;
+                    border-radius:0 8px 8px 0;font-size:0.82rem;color:#555;margin:8px 0 16px">
+            <strong>Dynamic Fields Supported:</strong>
+            <code>{name}</code> &nbsp; <code>{course}</code> &nbsp;
+            <code>{date}</code> &nbsp; <code>{certificate_id}</code>
+        </div>
+        """, unsafe_allow_html=True)
+
+        save_btn = st.form_submit_button("💾 Save Template", use_container_width=True)
+
+        if save_btn:
             if not name.strip():
                 st.error("Template name is required.")
                 return
 
             data = {
-                "name": name,
+                "name": name.strip(),
                 "school_name": school_name,
-                "watermark_text": watermark_text,
-                "watermark_transparency": watermark_transparency,
-                "school_name_x": sn_x, "school_name_y": sn_y,
-                "school_name_size": sn_size, "school_name_color": sn_color,
-                "school_name_font": sn_font, "school_name_bold": int(sn_bold),
-                "school_name_italic": int(sn_italic), "school_name_align": sn_align,
+                "school_name_x": sn_x,
+                "school_name_y": sn_y,
+                "school_name_size": sn_size,
+                "school_name_color": sn_color,
                 "logo_x": logo_x, "logo_y": logo_y,
-                "logo_width": logo_w, "logo_height": logo_h, "logo_transparency": logo_trans,
-                "name_x": name_x, "name_y": name_y,
-                "name_size": name_size, "name_color": name_color,
-                "sig_principal_x": sig_p_x, "sig_principal_y": sig_p_y,
-                "sig_coordinator_x": sig_c_x, "sig_coordinator_y": sig_c_y,
+                "logo_w": logo_w, "logo_h": logo_h,
+                "sig_x": sig_x, "sig_y": sig_y,
+                "watermark": watermark,
+                "watermark_opacity": watermark_opacity,
             }
 
             if bg_file:
-                data["background_path"] = save_uploaded_file(bg_file, "backgrounds")
+                data["bg_path"] = save_uploaded(bg_file, "backgrounds")
             elif existing:
-                data["background_path"] = existing.get("background_path", "")
+                data["bg_path"] = existing.get("bg_path", "")
 
             if logo_file:
-                data["logo_path"] = save_uploaded_file(logo_file, "logos")
+                data["logo_path"] = save_uploaded(logo_file, "logos")
             elif existing:
                 data["logo_path"] = existing.get("logo_path", "")
 
-            if sig_principal:
-                data["signature_principal_path"] = save_uploaded_file(sig_principal, "signatures")
+            if sig_file:
+                data["sig_path"] = save_uploaded(sig_file, "signatures")
             elif existing:
-                data["signature_principal_path"] = existing.get("signature_principal_path", "")
+                data["sig_path"] = existing.get("sig_path", "")
 
-            if sig_coordinator:
-                data["signature_coordinator_path"] = save_uploaded_file(sig_coordinator, "signatures")
-            elif existing:
-                data["signature_coordinator_path"] = existing.get("signature_coordinator_path", "")
-
-            if is_edit:
-                db.update_template(existing["id"], data)
-                st.success(f"✅ Template '{name}' updated successfully!")
+            if existing:
+                c = _conn()
+                sets = ", ".join([f"{k}=?" for k in data])
+                c.execute(f"UPDATE templates SET {sets} WHERE id=?",
+                          list(data.values()) + [existing["id"]])
+                c.commit()
+                c.close()
+                st.success(f"✅ Template '{name}' updated!")
             else:
-                db.save_template(data)
-                st.success(f"✅ Template '{name}' created successfully!")
+                db_save_template(data)
+                st.success(f"✅ Template '{name}' created!")
             st.rerun()
 
 
-def render_manage_templates(templates):
+# ─────────────────────────────────────────────
+# 10. PAGE: SINGLE CERTIFICATE
+# ─────────────────────────────────────────────
+
+def page_single_cert():
+    st.markdown("""
+    <div class="page-header">
+        <h1>📄 Generate Single Certificate</h1>
+        <p>Fill in recipient details and generate a professional certificate</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    templates = db_get_templates()
     if not templates:
-        st.info("No templates found.")
+        st.warning("⚠️ No templates found. Please create a template first.")
+        if st.button("Go to Template Builder"):
+            st.session_state.page = "Template Builder"
+            st.rerun()
         return
 
-    st.markdown(f"**{len(templates)} template(s) saved**")
-    for tpl in templates:
-        with st.expander(f"🎨 {tpl['name']} — {tpl['created_at'][:10]}"):
-            c1, c2 = st.columns([3, 1])
+    col_form, col_prev = st.columns([2, 3])
+
+    with col_form:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Recipient Details</div>', unsafe_allow_html=True)
+
+        tpl_names = [t["name"] for t in templates]
+        sel_tpl   = st.selectbox("Select Template", tpl_names)
+        template  = next(t for t in templates if t["name"] == sel_tpl)
+
+        with st.form("single_cert_form"):
+            name       = st.text_input("Student Name *", placeholder="Jane Doe")
+            course     = st.text_input("Course / Subject", placeholder="Data Science")
+            event      = st.text_input("Event / Program", placeholder="Annual Science Fair")
+            issue_date = st.date_input("Issue Date", value=date.today())
+            grade      = st.text_input("Grade (optional)", placeholder="A+")
+
+            c1, c2 = st.columns(2)
             with c1:
-                st.write(f"**School:** {tpl.get('school_name', 'N/A')}")
-                st.write(f"**Watermark:** {tpl.get('watermark_text', 'None')}")
-                bg = tpl.get("background_path", "")
-                st.write(f"**Background:** {os.path.basename(bg) if bg else 'Default'}")
+                preview_btn = st.form_submit_button("👁️ Preview", use_container_width=True)
             with c2:
-                if st.button("🗑️ Delete", key=f"del_tpl_{tpl['id']}"):
-                    db.delete_template(tpl["id"])
-                    st.success("Deleted.")
-                    st.rerun()
+                gen_btn = st.form_submit_button("🎓 Generate & Download", use_container_width=True)
+
+            if preview_btn or gen_btn:
+                if not name.strip():
+                    st.error("Student name is required.")
+                else:
+                    # Duplicate check
+                    if event.strip() and db_check_duplicate(name.strip(), event.strip()):
+                        st.warning(f"⚠️ A certificate already exists for '{name}' in event '{event}'.")
+
+                    cert_id = gen_cert_id()
+                    row_data = {
+                        "name": name.strip(),
+                        "course": course.strip(),
+                        "event": event.strip(),
+                        "date": str(issue_date),
+                        "grade": grade.strip(),
+                    }
+
+                    with st.spinner("Generating certificate…"):
+                        pdf_path, png_path = generate_pdf(template, row_data, cert_id)
+
+                    if gen_btn:
+                        db_save_cert({
+                            "certificate_id": cert_id,
+                            "student_name": name.strip(),
+                            "course": course.strip(),
+                            "event": event.strip(),
+                            "issue_date": str(issue_date),
+                            "grade": grade.strip(),
+                            "template_id": template["id"],
+                            "template_name": template["name"],
+                            "pdf_path": pdf_path,
+                            "png_path": png_path,
+                        })
+
+                    st.session_state["last_pdf"] = pdf_path
+                    st.session_state["last_png"] = png_path
+                    st.session_state["last_cert_id"] = cert_id
+                    if gen_btn:
+                        st.success(f"✅ Certificate generated! ID: **{cert_id}**")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Download buttons outside form
+        if "last_pdf" in st.session_state:
+            pdf_path = st.session_state["last_pdf"]
+            cert_id  = st.session_state["last_cert_id"]
+            if os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f:
+                    st.download_button(
+                        "⬇️ Download PDF",
+                        data=f.read(),
+                        file_name=f"{cert_id}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+
+    with col_prev:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Preview</div>', unsafe_allow_html=True)
+        if "last_png" in st.session_state and os.path.exists(st.session_state["last_png"]):
+            st.image(st.session_state["last_png"], use_container_width=True)
+            st.markdown(
+                f'<div style="text-align:center;margin-top:8px">'
+                f'<span class="badge badge-gold">ID: {st.session_state["last_cert_id"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown("""
+            <div style="height:380px;display:flex;align-items:center;justify-content:center;
+                        background:#f9f6f0;border-radius:10px;border:2px dashed #e5e0d5;">
+                <div style="text-align:center;color:#999">
+                    <div style="font-size:3rem">🎓</div>
+                    <div style="margin-top:8px;font-size:0.85rem">Preview appears here</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# 11. PAGE: BULK GENERATION
+# ─────────────────────────────────────────────
+
+def page_bulk():
+    st.markdown("""
+    <div class="page-header">
+        <h1>📦 Bulk Certificate Generation</h1>
+        <p>Upload a CSV/Excel file to generate certificates for multiple recipients at once</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    templates = db_get_templates()
+    if not templates:
+        st.warning("⚠️ Create a template first.")
+        return
+
+    col1, col2 = st.columns([2, 3])
+
+    with col1:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Upload & Configure</div>', unsafe_allow_html=True)
+
+        tpl_names = [t["name"] for t in templates]
+        sel_tpl   = st.selectbox("Select Template", tpl_names, key="bulk_tpl")
+        template  = next(t for t in templates if t["name"] == sel_tpl)
+
+        uploaded = st.file_uploader("Upload CSV or Excel", type=["csv","xlsx","xls"])
+
+        st.markdown("""
+        <div style="background:#f0ece0;border-left:4px solid #c9a84c;
+                    padding:10px 14px;border-radius:0 8px 8px 0;font-size:0.78rem;color:#666;margin:10px 0">
+            <strong>Required columns:</strong> <code>name</code><br>
+            <strong>Optional:</strong> <code>course</code>, <code>event</code>,
+            <code>date</code>, <code>grade</code>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        if uploaded:
+            try:
+                if uploaded.name.endswith(".csv"):
+                    df = pd.read_csv(uploaded)
+                else:
+                    df = pd.read_excel(uploaded)
+                df.columns = [c.strip().lower() for c in df.columns]
+
+                if "name" not in df.columns:
+                    st.error("File must have a 'name' column.")
+                    return
+
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-title">Preview — {len(df)} rows</div>', unsafe_allow_html=True)
+                st.dataframe(df.head(10), use_container_width=True)
+
+                if st.button("🚀 Generate All Certificates", use_container_width=True):
+                    rows = df.fillna("").to_dict("records")
+                    with st.spinner(f"Generating {len(rows)} certificates…"):
+                        results, zip_bytes = bulk_generate(template, rows)
+
+                    result_df = pd.DataFrame(results)
+                    st.dataframe(result_df, use_container_width=True)
+
+                    ok  = sum(1 for r in results if "Success" in r["status"])
+                    err = len(results) - ok
+                    st.markdown(
+                        f'<div style="display:flex;gap:12px;margin:12px 0">'
+                        f'<span class="badge badge-green">✅ {ok} generated</span>'
+                        f'<span class="badge badge-red">❌ {err} failed</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    st.download_button(
+                        "⬇️ Download All as ZIP",
+                        data=zip_bytes,
+                        file_name=f"certificates_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Error reading file: {e}")
+        else:
+            st.markdown("""
+            <div style="height:300px;display:flex;align-items:center;justify-content:center;
+                        background:white;border-radius:14px;border:2px dashed #e5e0d5;">
+                <div style="text-align:center;color:#aaa">
+                    <div style="font-size:3rem">📂</div>
+                    <div style="margin-top:8px;font-size:0.85rem">Upload a CSV or Excel file to get started</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# 12. PAGE: QR VERIFICATION
+# ─────────────────────────────────────────────
+
+def page_verification():
+    st.markdown("""
+    <div class="page-header">
+        <h1>🔍 Certificate Verification</h1>
+        <p>Verify the authenticity of any certificate using its ID or QR code</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Enter Certificate ID</div>', unsafe_allow_html=True)
+        cert_id_input = st.text_input("Certificate ID", placeholder="CERT-XXXXXXXXXX",
+                                      label_visibility="collapsed")
+        verify_btn = st.button("🔎 Verify Certificate", use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        if verify_btn and cert_id_input.strip():
+            cid = cert_id_input.strip().upper()
+            cert = db_get_cert_by_id(cid)
+
+            if cert:
+                st.markdown(f"""
+                <div class="card" style="border-left:5px solid #16a34a">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                        <div style="font-size:2.5rem">✅</div>
+                        <div>
+                            <div style="font-size:1.2rem;font-weight:700;color:#15803d">
+                                Certificate Valid
+                            </div>
+                            <div class="badge badge-green">VERIFIED</div>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.88rem">
+                        <div><span style="color:#888">Recipient</span><br>
+                            <strong>{cert['student_name']}</strong></div>
+                        <div><span style="color:#888">Certificate ID</span><br>
+                            <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">
+                            {cert['certificate_id']}</code></div>
+                        <div><span style="color:#888">Course</span><br>
+                            <strong>{cert.get('course','—')}</strong></div>
+                        <div><span style="color:#888">Issue Date</span><br>
+                            <strong>{cert.get('issue_date','—')}</strong></div>
+                        <div><span style="color:#888">Event</span><br>
+                            <strong>{cert.get('event','—')}</strong></div>
+                        <div><span style="color:#888">Template</span><br>
+                            <strong>{cert.get('template_name','—')}</strong></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Show QR
+                qr_path = os.path.join(GEN_DIR, "qr", f"{cid}.png")
+                if os.path.exists(qr_path):
+                    st.image(qr_path, caption="QR Code", width=160)
+
+            else:
+                st.markdown(f"""
+                <div class="card" style="border-left:5px solid #dc2626">
+                    <div style="display:flex;align-items:center;gap:12px">
+                        <div style="font-size:2.5rem">❌</div>
+                        <div>
+                            <div style="font-size:1.2rem;font-weight:700;color:#b91c1c">
+                                Certificate Not Found
+                            </div>
+                            <div style="color:#888;font-size:0.85rem;margin-top:4px">
+                                No record found for ID: <code>{cid}</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        elif not verify_btn:
+            st.markdown("""
+            <div style="height:240px;display:flex;align-items:center;justify-content:center;
+                        background:white;border-radius:14px;border:2px dashed #e5e0d5">
+                <div style="text-align:center;color:#aaa">
+                    <div style="font-size:3rem">🔍</div>
+                    <div style="margin-top:8px;font-size:0.85rem">
+                        Enter a certificate ID and click Verify
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# 13. PAGE: CERTIFICATE HISTORY
+# ─────────────────────────────────────────────
+
+def page_history():
+    st.markdown("""
+    <div class="page-header">
+        <h1>📜 Certificate History</h1>
+        <p>Browse, search and download all generated certificates</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        name_q = st.text_input("🔎 Search by Name", placeholder="Type a name…")
+    with col2:
+        id_q   = st.text_input("🔎 Search by Certificate ID", placeholder="CERT-…")
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        search_btn = st.button("Search", use_container_width=True)
+
+    certs = db_get_certs(name_q if search_btn else "", id_q if search_btn else "")
+
+    st.markdown(f"""
+    <div style="margin:12px 0 8px">
+        <span class="badge badge-navy">{len(certs)} records found</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not certs:
+        st.info("No certificates found.")
+        return
+
+    # Table display
+    table_data = []
+    for c in certs:
+        table_data.append({
+            "Certificate ID": c["certificate_id"],
+            "Recipient": c["student_name"],
+            "Course": c.get("course",""),
+            "Event": c.get("event",""),
+            "Grade": c.get("grade",""),
+            "Issue Date": c.get("issue_date",""),
+            "Template": c.get("template_name",""),
+            "Created": c.get("created_at","")[:10],
+        })
+
+    df_display = pd.DataFrame(table_data)
+    st.dataframe(df_display, use_container_width=True, height=400)
+
+    # Individual download expanders
+    st.markdown("### Download Individual Certificates")
+    for cert in certs[:20]:
+        with st.expander(f"📄 {cert['student_name']}  ·  {cert['certificate_id']}"):
+            c1, c2, c3 = st.columns([2, 1, 1])
+            with c1:
+                st.write(f"**Course:** {cert.get('course','—')}")
+                st.write(f"**Event:** {cert.get('event','—')}")
+                st.write(f"**Date:** {cert.get('issue_date','—')}")
+            with c2:
+                pdf_p = cert.get("pdf_path","")
+                if pdf_p and os.path.exists(pdf_p):
+                    with open(pdf_p, "rb") as f:
+                        st.download_button(
+                            "⬇️ PDF",
+                            data=f.read(),
+                            file_name=f"{cert['certificate_id']}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_{cert['certificate_id']}",
+                        )
+            with c3:
+                png_p = cert.get("png_path","")
+                if png_p and os.path.exists(png_p):
+                    with open(png_p, "rb") as f:
+                        st.download_button(
+                            "⬇️ PNG",
+                            data=f.read(),
+                            file_name=f"{cert['certificate_id']}.png",
+                            mime="image/png",
+                            key=f"dl_png_{cert['certificate_id']}",
+                        )
+
+
+# ─────────────────────────────────────────────
+# 14. PAGE: SETTINGS
+# ─────────────────────────────────────────────
+
+def page_settings():
+    st.markdown("""
+    <div class="page-header">
+        <h1>⚙️ Settings</h1>
+        <p>Manage your admin account and application preferences</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2 = st.tabs(["👤 Admin Profile", "🔒 Change Password"])
+
+    with tab1:
+        c = _conn()
+        admin = c.execute("SELECT * FROM admins WHERE username=?",
+                          (st.session_state.admin_username,)).fetchone()
+        c.close()
+        admin = dict(admin) if admin else {}
+
+        with st.form("profile_form"):
+            st.markdown('<div class="card-title">Profile Information</div>', unsafe_allow_html=True)
+            full_name = st.text_input("Full Name", value=admin.get("full_name",""))
+            email     = st.text_input("Email Address", value=admin.get("email",""))
+            username  = st.text_input("Username", value=admin.get("username",""), disabled=True)
+            if st.form_submit_button("💾 Save Profile", use_container_width=True):
+                c = _conn()
+                c.execute("UPDATE admins SET full_name=?, email=? WHERE username=?",
+                          (full_name, email, st.session_state.admin_username))
+                c.commit()
+                c.close()
+                st.success("✅ Profile updated.")
+
+    with tab2:
+        with st.form("pw_form"):
+            st.markdown('<div class="card-title">Change Password</div>', unsafe_allow_html=True)
+            old_pw  = st.text_input("Current Password", type="password")
+            new_pw  = st.text_input("New Password", type="password")
+            new_pw2 = st.text_input("Confirm New Password", type="password")
+
+            if st.form_submit_button("🔒 Change Password", use_container_width=True):
+                if not old_pw or not new_pw:
+                    st.error("All fields are required.")
+                elif new_pw != new_pw2:
+                    st.error("New passwords do not match.")
+                elif len(new_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                elif not db_check_login(st.session_state.admin_username, old_pw):
+                    st.error("Current password is incorrect.")
+                else:
+                    db_change_password(st.session_state.admin_username, new_pw)
+                    st.success("✅ Password changed successfully.")
+
+
+# ─────────────────────────────────────────────
+# 15. MAIN ROUTER
+# ─────────────────────────────────────────────
+
+def main():
+    init_db()
+
+    if not st.session_state.authenticated:
+        show_login()
+        return
+
+    show_sidebar()
+
+    page = st.session_state.page
+
+    if page == "Dashboard":
+        page_dashboard()
+    elif page == "Template Builder":
+        page_template_builder()
+    elif page == "Single Certificate":
+        page_single_cert()
+    elif page == "Bulk Generation":
+        page_bulk()
+    elif page == "QR Verification":
+        page_verification()
+    elif page == "Certificate History":
+        page_history()
+    elif page == "Settings":
+        page_settings()
+    else:
+        page_dashboard()
+
+
+if __name__ == "__main__":
+    main()
