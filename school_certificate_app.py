@@ -301,77 +301,83 @@ def generate_pdf(template: dict, data: dict, cert_id: str) -> tuple[str, str]:
         except Exception:
             pass
 
-    # ── School Name (in header band) ────────────
+    # ── Detect if custom background is used ───────
+    has_bg = bool(template.get("bg_path", "")) and os.path.exists(template.get("bg_path", ""))
+
+    # ── School Name ───────────────────────────────
     sn = template.get("school_name", "").strip()
     if sn:
         r, g, b = hex_to_rgb_float(template.get("school_name_color", "#f0c060"))
         c.setFillColorRGB(r, g, b)
         sz = int(template.get("school_name_size", 28))
         c.setFont("Helvetica-Bold", sz)
+        sn_y = float(template.get("school_name_y", 0.88 if not has_bg else 0.88)) * PAGE_H
         c.drawCentredString(
             float(template.get("school_name_x", 0.5)) * PAGE_W,
-            float(template.get("school_name_y", 0.88)) * PAGE_H,
+            sn_y,
             sn,
         )
 
-    # ── "CERTIFICATE OF ACHIEVEMENT" heading ─────
-    c.setFillColorRGB(0.50, 0.38, 0.08)
-    c.setFont("Helvetica-Bold", 28)
-    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.75, "CERTIFICATE OF ACHIEVEMENT")
+    # ── "CERTIFICATE OF ACHIEVEMENT" ──────────────
+    c.setFillColorRGB(0.45, 0.32, 0.05)
+    c.setFont("Helvetica-Bold", 32)
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.78, "CERTIFICATE OF ACHIEVEMENT")
 
-    # ── Decorative line under heading ────────────
+    # ── Gold decorative lines around heading ──────
     c.setStrokeColorRGB(0.75, 0.60, 0.20)
     c.setLineWidth(1.5)
-    c.line(PAGE_W * 0.28, PAGE_H * 0.728, PAGE_W * 0.72, PAGE_H * 0.728)
+    c.line(PAGE_W * 0.15, PAGE_H * 0.755, PAGE_W * 0.38, PAGE_H * 0.755)
+    c.line(PAGE_W * 0.62, PAGE_H * 0.755, PAGE_W * 0.85, PAGE_H * 0.755)
 
-    # ── "This is to certify that" ────────────────
-    c.setFillColorRGB(0.35, 0.30, 0.15)
-    c.setFont("Helvetica-Oblique", 18)
-    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.675, "This is to certify that")
+    # ── "This is to certify that" ─────────────────
+    c.setFillColorRGB(0.30, 0.25, 0.10)
+    c.setFont("Helvetica-Oblique", 20)
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.705, "This is to certify that")
 
-    # ── Recipient Name (large, centered) ─────────
-    c.setFillColorRGB(0.08, 0.08, 0.22)
-    c.setFont("Helvetica-Bold", 52)
-    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.585, data.get("name", ""))
+    # ── Recipient Name ────────────────────────────
+    c.setFillColorRGB(0.05, 0.05, 0.20)
+    c.setFont("Helvetica-Bold", 56)
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.610, data.get("name", ""))
 
     # ── Gold underline below name ─────────────────
     c.setStrokeColorRGB(0.75, 0.60, 0.20)
     c.setLineWidth(2)
-    c.line(PAGE_W * 0.18, PAGE_H * 0.562, PAGE_W * 0.82, PAGE_H * 0.562)
+    c.line(PAGE_W * 0.18, PAGE_H * 0.585, PAGE_W * 0.82, PAGE_H * 0.585)
 
     # ── "has successfully completed" ─────────────
-    c.setFillColorRGB(0.30, 0.30, 0.30)
-    c.setFont("Helvetica", 18)
-    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.515, "has successfully completed")
+    c.setFillColorRGB(0.25, 0.25, 0.25)
+    c.setFont("Helvetica", 20)
+    c.drawCentredString(PAGE_W / 2, PAGE_H * 0.535, "has successfully completed")
 
-    # ── Course Name (bold, prominent) ────────────
+    # ── Course Name ───────────────────────────────
     if data.get("course"):
-        c.setFillColorRGB(0.10, 0.20, 0.50)
-        c.setFont("Helvetica-Bold", 28)
-        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.455, data["course"].upper())
+        c.setFillColorRGB(0.08, 0.18, 0.48)
+        c.setFont("Helvetica-Bold", 30)
+        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.470, data["course"].upper())
 
     # ── Event ─────────────────────────────────────
     if data.get("event"):
-        c.setFillColorRGB(0.35, 0.35, 0.35)
-        c.setFont("Helvetica-Oblique", 18)
-        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.395, f"\u2014  {data['event']}  \u2014")
+        c.setFillColorRGB(0.30, 0.30, 0.30)
+        c.setFont("Helvetica-Oblique", 19)
+        c.drawCentredString(PAGE_W / 2, PAGE_H * 0.405,
+                            f"\u2014  {data['event']}  \u2014")
 
-    # ── Grade & Date on same line ──────────────────
+    # ── Full width separator ───────────────────────
+    c.setStrokeColorRGB(0.75, 0.60, 0.20)
+    c.setLineWidth(0.8)
+    c.line(PAGE_W * 0.15, PAGE_H * 0.365, PAGE_W * 0.85, PAGE_H * 0.365)
+
+    # ── Grade & Date ──────────────────────────────
     if data.get("grade"):
-        c.setFont("Helvetica-Bold", 16)
-        c.setFillColorRGB(0.15, 0.30, 0.60)
-        c.drawString(PAGE_W * 0.22, PAGE_H * 0.325, f"Grade :  {data['grade']}")
+        c.setFont("Helvetica-Bold", 17)
+        c.setFillColorRGB(0.12, 0.28, 0.58)
+        c.drawString(PAGE_W * 0.20, PAGE_H * 0.330, f"Grade :  {data['grade']}")
 
     issue_date = data.get("date", "")
     if issue_date:
-        c.setFont("Helvetica", 16)
-        c.setFillColorRGB(0.30, 0.30, 0.30)
-        c.drawRightString(PAGE_W * 0.78, PAGE_H * 0.325, f"Date :  {issue_date}")
-
-    # ── Thin separator line ────────────────────────
-    c.setStrokeColorRGB(0.80, 0.65, 0.25)
-    c.setLineWidth(1)
-    c.line(PAGE_W * 0.12, PAGE_H * 0.295, PAGE_W * 0.88, PAGE_H * 0.295)
+        c.setFont("Helvetica", 17)
+        c.setFillColorRGB(0.25, 0.25, 0.25)
+        c.drawRightString(PAGE_W * 0.80, PAGE_H * 0.330, f"Date :  {issue_date}")
 
     # ── Signature ─────────────────────────────────
     sp = template.get("sig_path", "")
@@ -379,19 +385,20 @@ def generate_pdf(template: dict, data: dict, cert_id: str) -> tuple[str, str]:
     sig_y_pt = float(template.get("sig_y", 0.20)) * PAGE_H
     if sp and os.path.exists(sp):
         try:
-            c.drawImage(ImageReader(sp), sig_x_pt - 70, sig_y_pt + 16, width=140,
-                        height=54, preserveAspectRatio=True, mask="auto")
+            c.drawImage(ImageReader(sp), sig_x_pt - 75, sig_y_pt + 18,
+                        width=150, height=58,
+                        preserveAspectRatio=True, mask="auto")
         except Exception:
             pass
-    c.setStrokeColorRGB(0.40, 0.40, 0.40)
+    c.setStrokeColorRGB(0.35, 0.35, 0.35)
     c.setLineWidth(1)
-    c.line(sig_x_pt - 80, sig_y_pt + 12, sig_x_pt + 80, sig_y_pt + 12)
-    c.setFillColorRGB(0.30, 0.30, 0.30)
-    c.setFont("Helvetica", 13)
-    c.drawCentredString(sig_x_pt, sig_y_pt - 4, "Authorized Signatory")
+    c.line(sig_x_pt - 90, sig_y_pt + 14, sig_x_pt + 90, sig_y_pt + 14)
+    c.setFillColorRGB(0.25, 0.25, 0.25)
+    c.setFont("Helvetica", 14)
+    c.drawCentredString(sig_x_pt, sig_y_pt - 2, "Authorized Signatory")
 
-    # ── Certificate ID (footer) ───────────────────
-    c.setFillColorRGB(0.70, 0.70, 0.70)
+    # ── Certificate ID ────────────────────────────
+    c.setFillColorRGB(0.55, 0.55, 0.55)
     c.setFont("Helvetica", 9)
     c.drawString(18, 18, f"Certificate ID: {cert_id}")
 
@@ -424,13 +431,12 @@ def _make_png(template: dict, data: dict, cert_id: str, qr_path: str, png_path: 
 
     draw = ImageDraw.Draw(img)
 
-    # ── Header & footer bands (only if no background uploaded) ──
+    # ── Header & footer bands (only if NO background image) ──
     if not (template.get("bg_path", "") and os.path.exists(template.get("bg_path", ""))):
         draw.rectangle([0, 0, W, 168], fill=(38, 30, 89))
         draw.rectangle([0, H - 108, W, H], fill=(38, 30, 89))
         draw.line([(0, 170), (W, 170)], fill=(230, 184, 64), width=5)
         draw.line([(0, H - 111), (W, H - 111)], fill=(230, 184, 64), width=5)
-        # Borders
         for col, bw, o in [((191, 153, 51), 14, 24), ((217, 179, 77), 4, 40)]:
             draw.rectangle([o, o, W - o, H - o], outline=col, width=bw)
 
@@ -502,43 +508,44 @@ def _make_png(template: dict, data: dict, cert_id: str, qr_path: str, png_path: 
         except Exception:
             pass
 
+    # ── CERTIFICATE OF ACHIEVEMENT ────────────────────
+    _centered("CERTIFICATE OF ACHIEVEMENT", int(H * 0.228), _font(58, bold=True), (115, 82, 13))
+    draw.line([(int(W*0.15), int(H*0.272)), (int(W*0.36), int(H*0.272))], fill=(191,153,51), width=3)
+    draw.line([(int(W*0.64), int(H*0.272)), (int(W*0.85), int(H*0.272))], fill=(191,153,51), width=3)
+
     # ── "This is to certify that" ─────────────────────
-    _centered("This is to certify that", int(H * 0.285), _font(26), (89, 75, 30))
+    _centered("This is to certify that", int(H * 0.308), _font(36), (77, 64, 26))
 
     # ── Recipient Name ────────────────────────────────
-    _centered(data.get("name", ""), int(H * 0.36), _font(80, bold=True), (20, 20, 56))
+    _centered(data.get("name", ""), int(H * 0.375), _font(96, bold=True), (13, 13, 51))
 
     # ── Gold underline ────────────────────────────────
-    name_ul_y = int(H * 0.47)
-    draw.line([(int(W * 0.22), name_ul_y), (int(W * 0.78), name_ul_y)],
-              fill=(191, 153, 51), width=3)
+    draw.line([(int(W*0.18), int(H*0.460)), (int(W*0.82), int(H*0.460))], fill=(191,153,51), width=4)
 
     # ── "has successfully completed" ─────────────────
-    _centered("has successfully completed", int(H * 0.505), _font(26), (77, 77, 77))
+    _centered("has successfully completed", int(H * 0.480), _font(36), (64, 64, 64))
 
     # ── Course ────────────────────────────────────────
     if data.get("course"):
-        _centered(data["course"].upper(), int(H * 0.565), _font(42, bold=True), (26, 51, 128))
+        _centered(data["course"].upper(), int(H * 0.542), _font(52, bold=True), (20, 46, 122))
 
     # ── Event ─────────────────────────────────────────
     if data.get("event"):
-        _centered(f"\u2014  {data['event']}  \u2014", int(H * 0.635), _font(28), (89, 89, 89))
+        _centered(f"\u2014  {data['event']}  \u2014", int(H * 0.607), _font(34), (77, 77, 77))
+
+    # ── Gold separator ────────────────────────────────
+    draw.line([(int(W*0.15), int(H*0.648)), (int(W*0.85), int(H*0.648))], fill=(191,153,51), width=2)
 
     # ── Grade & Date ──────────────────────────────────
-    row_y = int(H * 0.695)
+    row_y = int(H * 0.665)
     if data.get("grade"):
-        draw.text((int(W * 0.26), row_y), f"Grade :  {data['grade']}",
-                  fill=(38, 77, 153), font=_font(26, bold=True))
+        draw.text((int(W * 0.20), row_y), f"Grade :  {data['grade']}",
+                  fill=(31, 71, 148), font=_font(30, bold=True))
     if data.get("date"):
         date_text = f"Date :  {data['date']}"
-        bb = draw.textbbox((0, 0), date_text, font=_font(24))
-        draw.text((int(W * 0.74) - (bb[2] - bb[0]), row_y), date_text,
-                  fill=(77, 77, 77), font=_font(24))
-
-    # ── Thin gold separator ───────────────────────────
-    sep_y = int(H * 0.735)
-    draw.line([(int(W * 0.12), sep_y), (int(W * 0.88), sep_y)],
-              fill=(200, 165, 60), width=1)
+        bb = draw.textbbox((0, 0), date_text, font=_font(30))
+        draw.text((int(W * 0.80) - (bb[2] - bb[0]), row_y),
+                  date_text, fill=(64, 64, 64), font=_font(30))
 
     # ── Signature ─────────────────────────────────────
     sp = template.get("sig_path", "")
@@ -546,20 +553,20 @@ def _make_png(template: dict, data: dict, cert_id: str, qr_path: str, png_path: 
     sy = int(float(template.get("sig_y", 0.20)) * H)
     if sp and os.path.exists(sp):
         try:
-            sig_img = Image.open(sp).convert("RGBA").resize((240, 92))
-            img.paste(sig_img, (sx - 120, sy - 100), sig_img)
+            sig_img = Image.open(sp).convert("RGBA").resize((280, 108))
+            img.paste(sig_img, (sx - 140, sy - 116), sig_img)
             draw = ImageDraw.Draw(img)
         except Exception:
             pass
-    draw.line([(sx - 140, sy + 20), (sx + 140, sy + 20)], fill=(102, 102, 102), width=2)
+    draw.line([(sx - 160, sy + 28), (sx + 160, sy + 28)], fill=(90, 90, 90), width=2)
     sig_label = "Authorized Signatory"
-    bb = draw.textbbox((0, 0), sig_label, font=_font(20))
-    draw.text((sx - (bb[2] - bb[0]) // 2, sy + 26), sig_label,
-              fill=(51, 51, 51), font=_font(20))
+    bb = draw.textbbox((0, 0), sig_label, font=_font(26))
+    draw.text((sx - (bb[2] - bb[0]) // 2, sy + 36), sig_label,
+              fill=(51, 51, 51), font=_font(26))
 
     # ── Certificate ID (footer) ───────────────────────
-    draw.text((40, H - 82), f"Certificate ID: {cert_id}",
-              fill=(200, 200, 200), font=_font(18))
+    draw.text((40, H - 80), f"Certificate ID: {cert_id}",
+              fill=(180, 180, 180), font=_font(20))
 
     # ── QR Code ───────────────────────────────────────
     if os.path.exists(qr_path):
